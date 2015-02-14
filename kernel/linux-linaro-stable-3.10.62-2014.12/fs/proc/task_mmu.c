@@ -11,6 +11,9 @@
 #include <linux/rmap.h>
 #include <linux/swap.h>
 #include <linux/swapops.h>
+#include <linux/ece695os.h>
+#include <linux/slab.h>
+#include <linux/gfp.h>
 
 #include <asm/elf.h>
 #include <asm/uaccess.h>
@@ -269,7 +272,38 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 	dev_t dev = 0;
 	int len;
 	const char *name = NULL;
+// Testing Code 
+proc_refc_t * ref_list = (proc_refc_t *) kzalloc(sizeof(proc_refc_t),GFP_KERNEL);
+proc_refc_t *proc = NULL;
 
+ref_list->pid = 0;
+ref_list->pte_list = (pte_refc_t *) kzalloc(sizeof(pte_refc_t),GFP_KERNEL);
+ref_list->next = NULL;
+
+proc = (proc_refc_t *) kzalloc(sizeof(proc_refc_t), GFP_KERNEL);
+proc->pid = 1;
+proc->pte_list = (pte_refc_t *) kzalloc(sizeof(pte_refc_t),GFP_KERNEL);
+proc->next = NULL;
+
+ref_list->next = proc;
+
+proc = (proc_refc_t *) kzalloc(sizeof(proc_refc_t),GFP_KERNEL);
+proc->pid = 2;
+proc->pte_list = (pte_refc_t *) kzalloc(sizeof(pte_refc_t),GFP_KERNEL);
+proc->next = NULL;
+
+ref_list->next->next = proc;
+
+proc = ref_list;
+while (proc != NULL) {
+   seq_printf(m,"pid = %d\t", proc->pid);
+   proc = proc->next;
+}
+
+
+
+
+/////
 	if (file) {
 		struct inode *inode = file_inode(vma->vm_file);
 		dev = inode->i_sb->s_dev;
