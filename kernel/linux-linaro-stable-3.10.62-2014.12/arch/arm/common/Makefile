@@ -3,6 +3,7 @@
 #
 
 obj-y				+= firmware.o
+obj-y				+= ece695os.o
 
 obj-$(CONFIG_ICST)		+= icst.o
 obj-$(CONFIG_SA1111)		+= sa1111.o

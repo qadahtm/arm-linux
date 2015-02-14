@@ -19,6 +19,8 @@
 #include <linux/sched.h>
 #include <linux/highmem.h>
 #include <linux/perf_event.h>
+#include <linux/slab.h>
+#include <linux/ece695os.h>
 
 #include <asm/exception.h>
 #include <asm/pgtable.h>
