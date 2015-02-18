@@ -12,10 +12,17 @@
 #include <linux/swap.h>
 #include <linux/swapops.h>
 #include <linux/ece695os.h>
+#include <linux/mm_types.h>
 
 #include <asm/elf.h>
 #include <asm/uaccess.h>
 #include <asm/tlbflush.h>
+
+/* tqadah */
+#include <asm/bug.h>
+#include <asm/pgtable.h>
+
+/***********/
 #include "internal.h"
 
 void task_mem(struct seq_file *m, struct mm_struct *mm)
@@ -256,6 +263,55 @@ static int do_maps_open(struct inode *inode, struct file *file,
 	return ret;
 }
 
+/*tqadah*/
+
+//static unsigned long
+//static pte_t * 
+//get_pte(struct mm_struct mm, unsigned long addr){
+static pte_t *pte_lookup(struct mm_struct  *mm, int usermode, unsigned long addr){
+
+    pgd_t *pgd; pmd_t *pmd; pte_t *pte;
+
+//        pgd = pgd_offset(mm, addr);
+        pgd = mm->pgd;
+//         printk("tqadah: gets pgd @ %08x\n", (u32)pgd);
+
+       if (!pgd || !pgd_present(*pgd)) {
+//               printk("tqadah: bad pgd\n");
+               return NULL;
+       }
+
+       pmd = pmd_offset(pud_offset(pgd, addr), addr);
+       if (!pmd || !pmd_present(*pmd)) {
+//             printk("bad pmd\n");    // this can happen due to on-demand paging
+               return NULL;
+       }
+//	printk("tqadah: pmd val %08x\n", *pmd);
+
+       pte = pte_offset_map(pmd, addr);
+       if (!pte) {
+//               printk("tqadah: fail to get pte\n");
+               return NULL;
+       }
+
+       if (!pte_present(*pte) || (usermode && !pte_present_user(*pte))) {
+//             printk("tqadah: bad pte val %08x\n", *pte);  // can happen
+               return NULL;
+       }
+	printk("tqadah: looked up pte val %08x for addr(%08lx)\n", *pte,addr);
+       return pte;    
+}
+
+
+//static void pagetable_walk(struct mm_struct* mm){
+//    pgd_t *pgd; pmd_t *pmd; pte_t *pte;
+//    struct mm_walk pagemap_walk = {};
+//    struct pagemapread pm;
+//    unsigned long start_vaddr;
+//    unsigned long end_vaddr;
+//    
+//}
+/********/
 static void
 show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 {
@@ -267,34 +323,45 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 	unsigned long ino = 0;
 	unsigned long long pgoff = 0;
 	unsigned long start, end;
+        
+        /*tqadah*/
+        unsigned long caddr=0;
+        pte_t * cpte= NULL;
+        int c = 0;
+        struct mm_struct *pmm = task->active_mm;
+        
 	dev_t dev = 0;
 	int len;
 	const char *name = NULL;
 // Testing Code 
 //proc_refc_t * proc_refc_list = (proc_refc_t *) kzalloc(sizeof(proc_refc_t),GFP_KERNEL);
-proc_refc_t *proc = NULL;
-// Initialize of Null
-if (proc_refc_list == NULL){
-    proc_refc_list = (proc_refc_t *) kzalloc(sizeof(proc_refc_t),GFP_KERNEL);
-printk("inialize proc_refc_list\n");
-proc_refc_list->pid = 0;
-proc_refc_list->pte_list = (pte_refc_t *) kzalloc(sizeof(pte_refc_t),GFP_KERNEL);
-proc_refc_list->next = NULL;
-
-proc = (proc_refc_t *) kzalloc(sizeof(proc_refc_t), GFP_KERNEL);
-proc->pid = 1;
-proc->pte_list = (pte_refc_t *) kzalloc(sizeof(pte_refc_t),GFP_KERNEL);
-proc->next = NULL;
-
-proc_refc_list->next = proc;
-}
-
-proc = proc_refc_list;
-while (proc != NULL) {
-   seq_printf(m,"pid = %d\t", proc->pid);
-   proc = proc->next;
-}
-
+//proc_refc_t *proc = NULL;
+//// Initialize of Null
+//if (proc_refc_list == NULL){
+//    proc_refc_list = (proc_refc_t *) kzalloc(sizeof(proc_refc_t),GFP_KERNEL);
+//printk("inialize proc_refc_list\n");
+//proc_refc_list->pid = 0;
+//proc_refc_list->pte_list = (pte_refc_t *) kzalloc(sizeof(pte_refc_t),GFP_KERNEL);
+//proc_refc_list->next = NULL;
+//
+//proc = (proc_refc_t *) kzalloc(sizeof(proc_refc_t), GFP_KERNEL);
+//proc->pid = 1;
+//proc->pte_list = (pte_refc_t *) kzalloc(sizeof(pte_refc_t),GFP_KERNEL);
+//proc->next = NULL;
+//
+//proc_refc_list->next = proc;
+//}
+//
+//proc = proc_refc_list;
+//while (proc != NULL) {
+//   seq_printf(m,"pid = %d\t", proc->pid);
+//   proc = proc->next;
+//}
+//        if (task)
+//            seq_printf(m,"current pid %d \t",(int)task->pid);
+     
+        
+        
 
 
 
@@ -323,7 +390,7 @@ while (proc != NULL) {
 			flags & VM_MAYSHARE ? 's' : 'p',
 			pgoff,
 			MAJOR(dev), MINOR(dev), ino, &len);
-
+        
 	/*
 	 * Print the dentry name for named mappings, and a
 	 * special [heap] marker for the heap:
@@ -372,6 +439,41 @@ done:
 		pad_len_spaces(m, len);
 		seq_puts(m, name);
 	}
+
+        /* tqadah */
+        //print vis
+//        show_pte(mm,start);
+        seq_printf(m,"\n");                
+        caddr = start;
+    
+        while (caddr < end){
+
+            cpte = pte_lookup(pmm,0,caddr);
+            if (cpte != NULL){
+                if (pte_young(*cpte)){
+                    seq_printf(m,"1");
+                }
+                else{
+                    seq_printf(m," ");
+                }  
+            }
+            else{
+               seq_printf(m,"."); 
+            }
+            c++;
+            if ((c % 8) == 0) seq_printf(m," ");
+            if ((c % 32) == 0) seq_printf(m,"\n");
+            
+            caddr= caddr + (4*1024);
+            if ((end-caddr) > (end-start)) {
+                printk("tqadah : caddr = %08lx, start = %08lx, end= %08lx", caddr, start, end);
+                goto endmywalk;
+            }
+        }
+        
+ endmywalk:       
+//        seq_printf(m,"(%d pages)\n",c);
+ 
 	seq_putc(m, '\n');
 }
 

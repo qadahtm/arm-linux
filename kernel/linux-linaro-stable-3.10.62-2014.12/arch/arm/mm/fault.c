@@ -61,7 +61,8 @@ static inline int notify_page_fault(struct pt_regs *regs, unsigned int fsr)
 void show_pte(struct mm_struct *mm, unsigned long addr)
 {
 	pgd_t *pgd;
-
+        //printk(KERN_INFO "tqadah: shpw_pte(%08lx)",addr);
+        
 	if (!mm)
 		mm = &init_mm;
 
