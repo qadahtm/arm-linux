@@ -333,7 +333,7 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 	dev_t dev = 0;
 	int len;
 	const char *name = NULL;
-// Testing Code 
+#if 0 // Testing Code 
 //proc_refc_t * proc_refc_list = (proc_refc_t *) kzalloc(sizeof(proc_refc_t),GFP_KERNEL);
 //proc_refc_t *proc = NULL;
 //// Initialize of Null
@@ -361,6 +361,7 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 //            seq_printf(m,"current pid %d \t",(int)task->pid);
      
         
+#endif
         
 
 

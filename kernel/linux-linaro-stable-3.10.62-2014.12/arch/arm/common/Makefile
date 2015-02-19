@@ -3,7 +3,8 @@
 #
 
 obj-y				+= firmware.o
-obj-y				+= ece695os.o
+#obj-y				+= ece695os.o # Thamir
+obj-y				+= ece695os-procfs.o # Yiyang
 
 obj-$(CONFIG_ICST)		+= icst.o
 obj-$(CONFIG_SA1111)		+= sa1111.o

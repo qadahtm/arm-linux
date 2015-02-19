@@ -76,6 +76,10 @@
 #define PTE_HWTABLE_OFF		(PTE_HWTABLE_PTRS * sizeof(pte_t))
 #define PTE_HWTABLE_SIZE	(PTRS_PER_PTE * sizeof(u32))
 
+/* Code borrowed from Felix
+ * xzl access hw pte. NB the layout of hw pt and linux pt differ in 2.6 vs 3.4 */
+#define hw_pte(pte) (const volatile void *)(((unsigned long)pte) + 2048)
+
 /*
  * PMD_SHIFT determines the size of the area a second-level page table can map
  * PGDIR_SHIFT determines what a third-level page table entry can map
