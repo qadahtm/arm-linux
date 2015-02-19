@@ -880,6 +880,8 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 						newref->n = 1;
 						newref->vaddr = addr;
                                                 newref->pte = pte;
+                                                newref->saved_instr = 0;
+                                                newref->saved_pc = 0;
 						newref->next = NULL;
 						tsk->refcount_head = newref;
 						tsk->refcount_tail = newref;
@@ -909,6 +911,8 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 							newref->n = 1;
 							newref->vaddr = addr;
                                                         newref->pte = pte;
+                                                        newref->saved_instr = 0;
+                                                        newref->saved_pc = 0;
 							newref->next = NULL;
 							tsk->refcount_tail->next = newref;
 							tsk->refcount_tail = newref;
@@ -922,7 +926,7 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
                                                 }
 					}
                                         printk("===> Woo-hoo! caught an access. refcount=%d for addr = %08lx\n", cref,addr);
-					#if 1 /* Yiyang: test: walk through the refcount link list */
+					#if 0 /* Yiyang: test: walk through the refcount link list */
 						printk("[DEBUG] Walk through the refcount link list\n");
 						iter = tsk->refcount_head;
 						while (iter != NULL) {
