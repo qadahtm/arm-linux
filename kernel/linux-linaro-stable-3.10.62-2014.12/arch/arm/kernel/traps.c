@@ -400,6 +400,10 @@ static int call_undef_hook(struct pt_regs *regs, unsigned int instr)
 	return fn ? fn(regs, instr) : 1;
 }
 
+/* xzl, in fault.c */
+//extern unsigned int ece695_saved_pc = 0xffffffff;
+extern int ece695_restore_saved_instr(struct pt_regs *regs);
+
 asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 {
 	unsigned int instr;
@@ -440,6 +444,15 @@ asmlinkage void __exception do_undefinstr(struct pt_regs *regs)
 		return;
 
 die_sig:
+	/* xzl: should have called register_undef_hook(), but let's
+	 * do something dirty and quick */
+	printk(KERN_INFO "%s (%d): undefined instruction: pc=%p\n",
+			current->comm, task_pid_nr(current), pc);
+		dump_instr(KERN_INFO, regs);
+	/* if this is caused by us, don't die! */
+	if (ece695_restore_saved_instr(regs) == 0)
+		return;
+
 #ifdef CONFIG_DEBUG_USER
 	if (user_debug & UDBG_UNDEFINED) {
 		printk(KERN_INFO "%s (%d): undefined instruction: pc=%p\n",

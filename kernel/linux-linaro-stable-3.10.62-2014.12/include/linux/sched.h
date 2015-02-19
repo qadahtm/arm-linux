@@ -1057,12 +1057,23 @@ enum perf_event_task_context {
 	perf_nr_task_contexts,
 };
 
+/* Yiyang: struct for link list storing the page reference count */
+struct refcount {
+	unsigned long vaddr; // virtual address of a page
+	unsigned int n; // number of references
+	struct refcount* next;
+};
+
+
 struct task_struct {
 	volatile long state;	/* -1 unrunnable, 0 runnable, >0 stopped */
 	void *stack;
 	atomic_t usage;
 	unsigned int flags;	/* per process flags, defined below */
 	unsigned int ptrace;
+
+	struct refcount * refcount_head; // Yiyang: link list head for refcount
+	struct refcount * refcount_tail; // Yiyang: link list tail for refcount
 
 #ifdef CONFIG_SMP
 	struct llist_node wake_entry;

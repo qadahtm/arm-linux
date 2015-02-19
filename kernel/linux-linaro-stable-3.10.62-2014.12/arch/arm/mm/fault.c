@@ -19,14 +19,16 @@
 #include <linux/sched.h>
 #include <linux/highmem.h>
 #include <linux/perf_event.h>
-#include <linux/slab.h>
-#include <linux/ece695os.h>
 
 #include <asm/exception.h>
 #include <asm/pgtable.h>
 #include <asm/system_misc.h>
 #include <asm/system_info.h>
 #include <asm/tlbflush.h>
+
+#include <asm/io.h>
+#include <linux/slab.h>
+#include <linux/ece695os.h>
 
 #include "fault.h"
 
@@ -118,6 +120,7 @@ void show_pte(struct mm_struct *mm, unsigned long addr)
 		printk(", *ppte=%08llx",
 		       (long long)pte_val(pte[PTE_HWTABLE_PTRS]));
 #endif
+		printk(", *hwpte=%08llx", (long long)readl(hw_pte(pte)));	/* xzl */
 		pte_unmap(pte);
 	} while(0);
 
@@ -549,6 +552,259 @@ hook_fault_code(int nr, int (*fn)(unsigned long, unsigned int, struct pt_regs *)
 	fsr_info[nr].name = name;
 }
 
+/* Returns the pte* given mm and addr.
+ * This is modeled after show_pte().
+ */
+static pte_t *pte_lookup(struct mm_struct  *mm, int usermode, unsigned long addr)
+{
+	pgd_t *pgd; pmd_t *pmd; pte_t *pte;
+
+	pgd = pgd_offset(mm, addr);
+
+	printk("gets pgd @ %08x\n", (u32)pgd);
+
+	if (!pgd || !pgd_present(*pgd)) {
+		printk("bad pgd\n");
+		return NULL;
+	}
+
+	pmd = pmd_offset(pud_offset(pgd, addr), addr);
+	if (!pmd || !pmd_present(*pmd)) {
+		printk("bad pmd\n");	// this can happen due to on-demand paging
+		return NULL;
+	}
+
+	printk("pmd val %08x\n", *pmd);
+
+	pte = pte_offset_map(pmd, addr);
+	if (!pte) {
+		printk("fail to get pte\n");
+		return NULL;
+	}
+
+	if (!pte_present(*pte) || (usermode && !pte_present_user(*pte))) {
+		printk("bad pte val %08x\n", *pte);  // can happen
+		return NULL;
+	}
+
+	return pte;
+}
+
+/* Mark hardware pte as invalid so that future memory access will trigger
+ * exception.
+ */
+static void mask_hwpte(pte_t *pte)
+{
+	unsigned long hpte;
+	hpte = readl(hw_pte(pte));
+
+	printk("hpte was %08x, going to disable it.\n", (u32)hpte);
+
+	writel(hpte & ~0x3, (void *)hw_pte(pte));
+
+	/* We've made changes to hwpte. Flush the changes */
+	clean_dcache_area((void *)(hw_pte(pte)), sizeof(pte_t));   /* right API? */
+
+	/* flush tlb. Necessary. Othwerise future accesses may use stale TLB
+	 * for xslat which cannot be trapped. */
+	flush_tlb_kernel_page(__phys_to_virt(hpte & PAGE_MASK));
+}
+
+/* Mark hardware pte as valid so that future memory access will NOT trigger
+ * exception.
+ */
+static int unmask_hwpte(pte_t *pte)
+{
+	unsigned long hpte;
+
+	hpte = readl(hw_pte(pte));
+	printk("hpte was %08x. going to enable it.\n", (u32)hpte);
+
+	writel(hpte | 0x3, hw_pte(pte));
+	clean_dcache_area((void *)(hw_pte(pte)), sizeof(pte_t)); /*bring TLB in sync. no $inv*/
+	//flush_tlb_kernel_page(__phys_to_virt(hpte & PAGE_MASK)); /* necessary? */
+	return 1;
+}
+
+static struct mm * testmm = 0;
+static int ref= 0;
+static unsigned int saved_instr = 0;
+static unsigned int saved_pc = 0;
+static pte_t *saved_pte = 0; 	/* so that we don't have to lookup again */
+
+void ece695_mask_page(unsigned long vaddr)
+{
+	struct task_struct *tsk;
+	struct mm_struct *mm;
+	pte_t * pte;
+
+	if (!testmm) {
+		printk("didn't see xzltestprog so far. do nothing.\n");
+	}
+	mm = testmm;
+	show_pte(mm, vaddr);
+
+	pte = pte_lookup(mm, 1, vaddr);
+	printk("pte lookup returns %08x\n", (unsigned int)pte);
+	if (pte == NULL) {
+		printk("[ERROR] pte_lookup() failed\n");
+	}
+	mask_hwpte(pte);
+}
+
+/* Replace the next user instruction as a special Undefined instruction, which
+ * will trigger exception and thus trap into the kernel again.
+ *
+ * This allows us to execute the faulty instruction, while letting us to turn
+ * the pte back into invalid right after the faulty instruction is executed.
+ */
+void patch_instr(unsigned long addr, struct mm_struct *mm, struct pt_regs *regs)
+{
+	/* see do_undefinstr() for a systematic way of doing this */
+
+	unsigned long pc  = regs->ARM_pc;
+	unsigned int instr;	/* the faulty instr */
+	unsigned int undef = BUG_INSTR_VALUE;
+	pte_t * pte;
+	unsigned long hpte;
+
+	/* Read the faulty instruction from pc */
+	if (get_user(instr, (u32 __user *)pc) == 0)
+		printk("faulty pc %08x, instr %08x\n", pc, instr);
+
+	/*
+	 * Make the instruction page r/w so that we can plant the undefinstr.
+	 * Originally, the instruction page should be r/o.
+	 */
+	pte = pte_lookup(mm, 1, pc);
+	if (!pte) {
+		printk("bug -- why no pte for the faulty pc?\n");
+		BUG();
+	}
+
+#if 0	/* debugging */
+	if (pte_write(*pte))
+		printk("page r/w\n");
+	else
+		printk("page r/o\n");
+#endif
+
+	hpte = readl(hw_pte(pte));
+
+#if 1	/* debugging */
+	printk("hpte %08x PTE_EXT_APX %d PTE_EXT_AP1 %d\n", hpte,
+			PTE_EXT_APX & hpte, PTE_EXT_AP1 & hpte);
+#endif
+
+	set_pte_at(mm, addr, pte, pte_mkwrite(*pte));
+	writel(hpte & (~PTE_EXT_APX), hw_pte(pte));
+
+//	flush_cache_all();	/* cannot flush, why? */
+
+	printk(" --- after change --- \n");
+
+#if 0	/* debugging */
+	if (pte_write(*pte))
+		printk("page r/w\n");
+	else
+		printk("page r/o\n");
+#endif
+
+	hpte = readl(hw_pte(pte));
+	printk("hpte %08x PTE_EXT_APX %d\n", hpte, PTE_EXT_APX & hpte);
+
+#if 0	/* debugging */
+	if (!access_ok(VERIFY_WRITE, (u32 __user *)pc, 4))
+		printk("access_ok failed\n");
+	else
+		printk("access_ok okay\n");
+#endif
+
+	/* XXX determine the next instruction.
+	 *
+	 * in theory, we have to decode the faulty instr and see what is
+	 * the next instr. here, we simply assume the next instr is at
+	 * pc + 4 (which may not be always true, e.g. ldr pc, [r0])
+	 */
+	pc += 4;
+	saved_pc = pc; 	/* undefinstr handler will need this */
+	/* save the next user instruction */
+	if (get_user(saved_instr, (u32 __user *)pc) == 0)
+		printk("to patch @%08x, saved instr %08x\n", pc, saved_instr);
+	else {
+		printk("bug -- cannot read instr at %08x\n", pc);
+		BUG();
+	}
+
+	/* overwrite the next user instruction as an undef instr */
+	if (put_user(undef, (u32 __user *)pc) == 0)
+		printk("write undef instr ok\n");
+	else {
+		printk("bug -- cannot write the undef instr. \n");
+		BUG();
+	}
+
+#if 0
+	if (__copy_to_user((u32 __user *)pc, &undef, sizeof(unsigned int)) == 0)
+		printk("__copy_to_user okay\n");
+	else
+		printk("__copy_to_user failed\n");
+#endif
+
+//	__flush_icache_all();
+	flush_cache_all();	// <- xzl: really needed? XXX
+
+	get_user(instr, (u32 __user *)pc);
+	printk("read again: faulty pc %08x, instr %08x\n", pc, instr);
+	printk("patch is done\n");
+}
+
+/* will be invoked upon undefinstr exception.
+ * return 0 on success */
+int ece695_restore_saved_instr(struct pt_regs *regs)
+{
+	unsigned int pc;
+	unsigned int instr;
+
+	if ((!saved_instr) || (!saved_pc)) {
+//		print("no saved instr found -- why?\n");
+		return -1;
+	}
+
+	pc = (void __user *)instruction_pointer(regs);
+
+	if ((unsigned int)pc != saved_pc)
+		return -1;
+
+	printk("oh this undefinstr is planted by us. \n");
+	get_user(instr, (u32 __user *)pc);
+	printk("read: faulty pc %08x, instr %08x\n", pc, instr);
+
+	if (put_user(saved_instr, (u32 __user *)pc) == 0)
+		printk("restore instr ok -- user good to go\n");
+	else {
+		printk("bug -- cannot restore instr. \n");
+		BUG();
+	}
+
+	/* XXX: make the instruction page as r/o for security */
+
+	get_user(instr, (u32 __user *)pc);
+	printk("read again: faulty pc %08x, instr %08x\n", pc, instr);
+
+	saved_instr = 0;
+	saved_pc = 0;
+
+	if (!saved_pte) {
+		printk("bug -- no saved pte?\n");
+		BUG();
+	}
+
+	/* ready to capture the next user access to the same page */
+	mask_hwpte(saved_pte);
+	return 0;
+}
+
 /*
  * Dispatch a data abort to the relevant handler.
  */
@@ -558,8 +814,103 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	const struct fsr_info *inf = fsr_info + fsr_fs(fsr);
 	struct siginfo info;
 
-	if (!inf->fn(addr, fsr & ~FSR_LNX_PF, regs))
+	/* xzl: add code here */
+	struct task_struct *tsk;
+	struct mm_struct *mm;
+	pte_t *pte;
+	unsigned long hpte;
+
+	struct refcount* newref = NULL;
+	struct refcount* iter = NULL;
+
+	/* xzl: we have a fault; is the fault caused by us? */
+	// (fsr & FSR_FS3_0) == PAGE_TRANSLATION_FAULT) ??
+#if 1	/* simple heuristics. you can go fancy of course */
+	if (current && current->mm) {
+		tsk = current; mm = current->mm;
+		if (strncmp(tsk->comm, "xzltestprog", TASK_COMM_LEN) == 0) {
+			pte = pte_lookup(mm, 1, addr);
+			if (pte) {
+				hpte = readl(hw_pte(pte));
+				if (hpte && (!(hpte & 0x3))) {
+					/* hw pte has bit set, but invalid. seems planted by us */
+					printk("===> Woo-hoo! caught an access. refcount=%d\n", ++ref);
+
+					/* Yiyang: update refcounts link list in mm_struct */
+					if (tsk->refcount_head == NULL) {
+						if (NULL == (newref = 
+									(struct refcount *)kzalloc(
+									sizeof(struct refcount), GFP_KERNEL))) {
+							printk(KERN_EMERG "[ERROR] kzalloc() failed. 1\n");
+							BUG();
+						} 
+						newref->n = 1;
+						newref->vaddr = addr;
+						newref->next = NULL;
+						tsk->refcount_head = newref;
+						tsk->refcount_tail = newref;
+					} else {
+						/* search the link list to find the right vaddr */
+						iter = tsk->refcount_head;
+						while (iter != NULL) {
+							if (iter->vaddr == addr) {
+								iter->n += 1;
+								break;
+							}
+						}
+						/* didn't find the vaddr in the link list, kzalloc a new one */
+						if (iter == NULL) {
+							if (NULL == (newref = 
+										(struct refcount *)kzalloc(
+										sizeof(struct refcount), GFP_KERNEL))) {
+								printk(KERN_EMERG "[ERROR] kzalloc() failed. 2\n");
+								BUG();
+							} 
+							newref->n = 1;
+							newref->vaddr = addr;
+							newref->next = NULL;
+							tsk->refcount_tail->next = newref;
+							tsk->refcount_tail = newref;
+						}
+					}
+
+					#if 1 /* Yiyang: test: walk through the refcount link list */
+						printk("[DEBUG] Walk through the refcount link list\n");
+						iter = tsk->refcount_head;
+						while (iter != NULL) {
+							printk("[DEBUG] 0x%x:%u\n", iter->vaddr, iter->n);
+							iter = iter->next;
+						}
+					#endif
+
+					if (ref < 5) {	/* for quick test */
+						patch_instr(addr, mm, regs);
+						saved_pte = pte;
+					} else
+						printk("refcount large enough. stop monitoring\n");
+
+					/* let user to execute the faulty instr */
+					unmask_hwpte(pte);
+					return;	/* skip Linux's handling */
+				}
+			}
+		}
+	}
+#endif
+
+	if (!inf->fn(addr, fsr & ~FSR_LNX_PF, regs)) {
+		/* xzl: exception handling okay */
+#if 1
+		tsk = current;
+		mm  = tsk->mm;
+		if (strncmp(tsk->comm, "xzltestprog", TASK_COMM_LEN) == 0) {
+			testmm = mm; 	// remember it
+//			printk("I got a page fault -- fixed \n");
+//			show_pte(mm, addr);
+		}
+#endif
 		return;
+	}
 
 	printk(KERN_ALERT "Unhandled fault: %s (0x%03x) at 0x%08lx\n",
 		inf->name, fsr, addr);
