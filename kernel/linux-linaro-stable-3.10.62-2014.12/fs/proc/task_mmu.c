@@ -25,6 +25,9 @@
 /***********/
 #include "internal.h"
 
+extern pte_t *pte_lookup(struct mm_struct  *mm, int usermode, unsigned long addr); // see fault.c
+extern void ece695_mask_page(struct task_struct *task, unsigned long vaddr); // see fault.c
+
 void task_mem(struct seq_file *m, struct mm_struct *mm)
 {
 	unsigned long data, text, lib, swap;
@@ -265,43 +268,45 @@ static int do_maps_open(struct inode *inode, struct file *file,
 
 /*tqadah*/
 
-//static unsigned long
-//static pte_t * 
-//get_pte(struct mm_struct mm, unsigned long addr){
-static pte_t *pte_lookup(struct mm_struct  *mm, int usermode, unsigned long addr){
 
-    pgd_t *pgd; pmd_t *pmd; pte_t *pte;
-
+//static pte_t *pte_lookup(struct mm_struct  *mm, int usermode, unsigned long addr){
+//
+//    pgd_t *pgd; pmd_t *pmd; pte_t *pte;
+//
 //        pgd = pgd_offset(mm, addr);
-        pgd = mm->pgd;
-//         printk("tqadah: gets pgd @ %08x\n", (u32)pgd);
+////        pgd = mm->pgd;
+////         printk("tqadah: gets pgd @ %08x\n", (u32)pgd);
+//
+//       if (!pgd || !pgd_present(*pgd)) {
+////               printk("tqadah: bad pgd\n");
+//               return NULL;
+//       }
+//
+//       pmd = pmd_offset(pud_offset(pgd, addr), addr);
+//       if (!pmd || !pmd_present(*pmd)) {
+////             printk("bad pmd\n");    // this can happen due to on-demand paging
+//               return NULL;
+//       }
+////	printk("tqadah: pmd val %08x\n", *pmd);
+//
+//       pte = pte_offset_map(pmd, addr);
+//       if (!pte) {
+////               printk("tqadah: fail to get pte\n");
+//               return NULL;
+//       }
+//
+//       if (!pte_present(*pte) || (usermode && !pte_present_user(*pte))) {
+////             printk("tqadah: bad pte val %08x\n", *pte);  // can happen
+//               return NULL;
+//       }
+//	//printk("tqadah: looked up pte val %08x for addr(%08lx)\n", *pte,addr);
+//       return pte;    
+//}
 
-       if (!pgd || !pgd_present(*pgd)) {
-//               printk("tqadah: bad pgd\n");
-               return NULL;
-       }
-
-       pmd = pmd_offset(pud_offset(pgd, addr), addr);
-       if (!pmd || !pmd_present(*pmd)) {
-//             printk("bad pmd\n");    // this can happen due to on-demand paging
-               return NULL;
-       }
-//	printk("tqadah: pmd val %08x\n", *pmd);
-
-       pte = pte_offset_map(pmd, addr);
-       if (!pte) {
-//               printk("tqadah: fail to get pte\n");
-               return NULL;
-       }
-
-       if (!pte_present(*pte) || (usermode && !pte_present_user(*pte))) {
-//             printk("tqadah: bad pte val %08x\n", *pte);  // can happen
-               return NULL;
-       }
-	printk("tqadah: looked up pte val %08x for addr(%08lx)\n", *pte,addr);
-       return pte;    
+static int match_pte(pte_t *pte, struct mm_struct  *mm, int usermode, unsigned long vaddr){
+    pte_t * npte= pte_lookup(mm,usermode,vaddr);
+    return ((*pte) == (*npte));
 }
-
 
 //static void pagetable_walk(struct mm_struct* mm){
 //    pgd_t *pgd; pmd_t *pmd; pte_t *pte;
@@ -328,7 +333,12 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
         unsigned long caddr=0;
         pte_t * cpte= NULL;
         int c = 0;
-        struct mm_struct *pmm = task->active_mm;
+//        struct mm_struct *pmm = task->active_mm;
+        struct mm_struct *pmm = task->mm;
+        struct refcount* refc = NULL;
+        int file_seg = 0;
+        int stack_seg = 0;
+        int heap_seg = 0;
         
 	dev_t dev = 0;
 	int len;
@@ -399,6 +409,10 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 	if (file) {
 		pad_len_spaces(m, len);
 		seq_path(m, &file->f_path, "\n");
+                
+//                printk("tqadah : %s\n",file->f_path.dentry->d_iname);
+                if (strcmp(file->f_path.dentry->d_iname,"zero") == 0)
+                    file_seg = 1;
 		goto done;
 	}
 
@@ -414,6 +428,7 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 		if (vma->vm_start <= mm->brk &&
 		    vma->vm_end >= mm->start_brk) {
 			name = "[heap]";
+                        heap_seg = 1;
 			goto done;
 		}
 
@@ -427,10 +442,12 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 			if (!is_pid || (vma->vm_start <= mm->start_stack &&
 			    vma->vm_end >= mm->start_stack)) {
 				name = "[stack]";
+                                stack_seg = 1;
 			} else {
 				/* Thread stack in /proc/PID/maps */
 				pad_len_spaces(m, len);
 				seq_printf(m, "[stack:%d]", tid);
+                                stack_seg=1;
 			}
 		}
 	}
@@ -449,14 +466,52 @@ done:
     
         while (caddr < end){
 
-            cpte = pte_lookup(pmm,0,caddr);
+            cpte = pte_lookup(pmm,1,caddr);
             if (cpte != NULL){
-                if (pte_young(*cpte)){
-                    seq_printf(m,"1");
+                if (strncmp(task->comm, "xzltestprog", TASK_COMM_LEN) == 0) {
+                    refc = task->refcount_head;
+                    while (refc != NULL){
+                        if (*(refc->pte) == *cpte){
+                            goto found_pte;
+                        }
+
+                        refc = refc->next;
+                    }
+                    found_pte:
+                        if (refc != NULL){
+                            seq_printf(m,"%d",refc->n);
+                        }
+                        else{
+                            // pte is not being monitored
+                            
+                            // start monitoring it for future calls
+                            // this will only work if we handle patching and 
+                            // unpatching the next instructions proparly
+//                            ece695_mask_page(caddr);
+                            // partial solution turn on monitoring selectivly
+                            if (stack_seg == 1) {
+                                
+                                if (pte_young(*cpte)) seq_printf(m,"1");
+                                else seq_printf(m,"0");
+                                ece695_mask_page(task, caddr);
+                            }
+//                            else if (file_seg == 1){
+//                                if (pte_young(*cpte)) seq_printf(m,"1");
+//                                else seq_printf(m,"0");
+//                                ece695_mask_page(task, caddr);
+//                            }
+                            else 
+                                seq_printf(m,"n");
+                        }
                 }
                 else{
-                    seq_printf(m," ");
-                }  
+                    if (pte_young(*cpte)){
+                        seq_printf(m,"1");
+                    }
+                    else{
+                        seq_printf(m,"0");
+                    }  
+                }
             }
             else{
                seq_printf(m,"."); 

@@ -555,10 +555,12 @@ hook_fault_code(int nr, int (*fn)(unsigned long, unsigned int, struct pt_regs *)
 /* Returns the pte* given mm and addr.
  * This is modeled after show_pte().
  */
-static pte_t *pte_lookup(struct mm_struct  *mm, int usermode, unsigned long addr)
+//static 
+pte_t *pte_lookup(struct mm_struct  *mm, int usermode, unsigned long addr)
 {
 	pgd_t *pgd; pmd_t *pmd; pte_t *pte;
-
+        
+        printk("looking up addr = %08lx \n",addr);
 	pgd = pgd_offset(mm, addr);
 
 	printk("gets pgd @ %08x\n", (u32)pgd);
@@ -626,30 +628,39 @@ static int unmask_hwpte(pte_t *pte)
 	return 1;
 }
 
-static struct mm * testmm = 0;
-static int ref= 0;
-static unsigned int saved_instr = 0;
-static unsigned int saved_pc = 0;
-static pte_t *saved_pte = 0; 	/* so that we don't have to lookup again */
+//static struct mm * testmm = 0;
+//static int ref= 0;
+//static unsigned int saved_instr = 0;
+//static unsigned int saved_pc = 0;
+//static pte_t *saved_pte = 0; 	/* so that we don't have to lookup again */
 
-void ece695_mask_page(unsigned long vaddr)
+void ece695_mask_page_abs(unsigned long vaddr) {}
+
+void ece695_mask_page(struct task_struct *tsk, unsigned long vaddr)
 {
-	struct task_struct *tsk;
-	struct mm_struct *mm;
+//	struct task_struct *tsk;
+	struct mm_struct *mm = tsk->mm;
 	pte_t * pte;
 
-	if (!testmm) {
-		printk("didn't see xzltestprog so far. do nothing.\n");
-	}
-	mm = testmm;
-	show_pte(mm, vaddr);
+//	if (!testmm) {
+//		printk("didn't see xzltestprog so far. do nothing.\n");
+//	}
+//	mm = testmm;
+//	show_pte(mm, vaddr);
+        
+        if (tsk && tsk->mm) {
+		
+		if (strncmp(tsk->comm, "xzltestprog", TASK_COMM_LEN) == 0) {
+                    	pte = pte_lookup(mm, 1, vaddr);
+                        printk("pte lookup returns %08x\n", (unsigned int)pte);
+                        if (pte == NULL) {
+                                printk("[ERROR] pte_lookup() failed\n");
+                                return;
+                        }
+                        mask_hwpte(pte);                 
+                }
+        }
 
-	pte = pte_lookup(mm, 1, vaddr);
-	printk("pte lookup returns %08x\n", (unsigned int)pte);
-	if (pte == NULL) {
-		printk("[ERROR] pte_lookup() failed\n");
-	}
-	mask_hwpte(pte);
 }
 
 /* Replace the next user instruction as a special Undefined instruction, which
@@ -658,17 +669,17 @@ void ece695_mask_page(unsigned long vaddr)
  * This allows us to execute the faulty instruction, while letting us to turn
  * the pte back into invalid right after the faulty instruction is executed.
  */
-void patch_instr(unsigned long addr, struct mm_struct *mm, struct pt_regs *regs)
+void patch_instr(struct refcount* refc, unsigned long addr, struct mm_struct *mm, struct pt_regs *regs)
 {
 	/* see do_undefinstr() for a systematic way of doing this */
-
+    
 	unsigned long pc  = regs->ARM_pc;
 	unsigned int instr;	/* the faulty instr */
 	unsigned int undef = BUG_INSTR_VALUE;
 	pte_t * pte;
 	unsigned long hpte;
-
-	/* Read the faulty instruction from pc */
+        
+        /* Read the faulty instruction from pc */
 	if (get_user(instr, (u32 __user *)pc) == 0)
 		printk("faulty pc %08x, instr %08x\n", pc, instr);
 
@@ -676,11 +687,15 @@ void patch_instr(unsigned long addr, struct mm_struct *mm, struct pt_regs *regs)
 	 * Make the instruction page r/w so that we can plant the undefinstr.
 	 * Originally, the instruction page should be r/o.
 	 */
-	pte = pte_lookup(mm, 1, pc);
+	printk("looking up pc \n");
+        pte = pte_lookup(mm, 1, pc);
+        
 	if (!pte) {
 		printk("bug -- why no pte for the faulty pc?\n");
 		BUG();
 	}
+        
+        
 
 #if 0	/* debugging */
 	if (pte_write(*pte))
@@ -727,10 +742,11 @@ void patch_instr(unsigned long addr, struct mm_struct *mm, struct pt_regs *regs)
 	 * pc + 4 (which may not be always true, e.g. ldr pc, [r0])
 	 */
 	pc += 4;
-	saved_pc = pc; 	/* undefinstr handler will need this */
+        
+        refc->saved_pc = pc; 	/* undefinstr handler will need this */
 	/* save the next user instruction */
-	if (get_user(saved_instr, (u32 __user *)pc) == 0)
-		printk("to patch @%08x, saved instr %08x\n", pc, saved_instr);
+	if (get_user(refc->saved_instr, (u32 __user *)pc) == 0)
+		printk("to patch @%08x, saved instr %08x\n", pc, refc->saved_instr);
 	else {
 		printk("bug -- cannot read instr at %08x\n", pc);
 		BUG();
@@ -765,22 +781,37 @@ int ece695_restore_saved_instr(struct pt_regs *regs)
 {
 	unsigned int pc;
 	unsigned int instr;
-
-	if ((!saved_instr) || (!saved_pc)) {
-//		print("no saved instr found -- why?\n");
-		return -1;
-	}
-
+        struct refcount * refc = current->refcount_head;
+        
 	pc = (void __user *)instruction_pointer(regs);
 
-	if ((unsigned int)pc != saved_pc)
+        printk("look up refc\n");
+        
+        while (refc != NULL){
+            if (refc->saved_pc == pc) break;
+            refc = refc->next;
+        }
+        
+        if (refc == NULL){
+            printk("cannot find corresponding refc entry\n");
+            BUG();
+            return -1;
+        }
+        
+        if ((!refc->saved_instr) || (!refc->saved_pc)) {
+		printk("no saved instr found -- why?\n");
 		return -1;
+	}
+                
+                
+//	if ((unsigned int)pc != current->saved_pc)
+//		return -1;
 
 	printk("oh this undefinstr is planted by us. \n");
 	get_user(instr, (u32 __user *)pc);
 	printk("read: faulty pc %08x, instr %08x\n", pc, instr);
 
-	if (put_user(saved_instr, (u32 __user *)pc) == 0)
+	if (put_user(refc->saved_instr, (u32 __user *)pc) == 0)
 		printk("restore instr ok -- user good to go\n");
 	else {
 		printk("bug -- cannot restore instr. \n");
@@ -792,16 +823,16 @@ int ece695_restore_saved_instr(struct pt_regs *regs)
 	get_user(instr, (u32 __user *)pc);
 	printk("read again: faulty pc %08x, instr %08x\n", pc, instr);
 
-	saved_instr = 0;
-	saved_pc = 0;
+	refc->saved_instr = 0;
+	refc->saved_pc = 0;
 
-	if (!saved_pte) {
+	if (!refc->pte) {
 		printk("bug -- no saved pte?\n");
 		BUG();
 	}
 
 	/* ready to capture the next user access to the same page */
-	mask_hwpte(saved_pte);
+	mask_hwpte(refc->pte);
 	return 0;
 }
 
@@ -822,6 +853,8 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 
 	struct refcount* newref = NULL;
 	struct refcount* iter = NULL;
+        struct refcount* refc = NULL;
+        unsigned int cref =0;
 
 	/* xzl: we have a fault; is the fault caused by us? */
 	// (fsr & FSR_FS3_0) == PAGE_TRANSLATION_FAULT) ??
@@ -834,8 +867,8 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 				hpte = readl(hw_pte(pte));
 				if (hpte && (!(hpte & 0x3))) {
 					/* hw pte has bit set, but invalid. seems planted by us */
-					printk("===> Woo-hoo! caught an access. refcount=%d\n", ++ref);
-
+//					printk("===> Woo-hoo! caught an access. refcount=%d\n", ++ref);
+                                        
 					/* Yiyang: update refcounts link list in mm_struct */
 					if (tsk->refcount_head == NULL) {
 						if (NULL == (newref = 
@@ -846,17 +879,24 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 						} 
 						newref->n = 1;
 						newref->vaddr = addr;
+                                                newref->pte = pte;
 						newref->next = NULL;
 						tsk->refcount_head = newref;
 						tsk->refcount_tail = newref;
+                                                cref = newref->n;
+                                                refc = newref;
 					} else {
-						/* search the link list to find the right vaddr */
+						/* search the link list to find the right pte */
 						iter = tsk->refcount_head;
 						while (iter != NULL) {
-							if (iter->vaddr == addr) {
+//							if (iter->vaddr == addr) {
+//								iter->n += 1;
+//								break;
+//							}
+                                                    if (*(iter->pte) == *pte) {
 								iter->n += 1;
 								break;
-							}
+                                                    }
 						}
 						/* didn't find the vaddr in the link list, kzalloc a new one */
 						if (iter == NULL) {
@@ -868,12 +908,20 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 							} 
 							newref->n = 1;
 							newref->vaddr = addr;
+                                                        newref->pte = pte;
 							newref->next = NULL;
 							tsk->refcount_tail->next = newref;
 							tsk->refcount_tail = newref;
+                                                        cref = newref->n;
+                                                        refc = newref;
 						}
+                                                else{
+                                                    iter->n = (iter->n +1);
+                                                    cref = iter->n;
+                                                    refc = iter;
+                                                }
 					}
-
+                                        printk("===> Woo-hoo! caught an access. refcount=%d for addr = %08lx\n", cref,addr);
 					#if 1 /* Yiyang: test: walk through the refcount link list */
 						printk("[DEBUG] Walk through the refcount link list\n");
 						iter = tsk->refcount_head;
@@ -883,9 +931,9 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 						}
 					#endif
 
-					if (ref < 5) {	/* for quick test */
-						patch_instr(addr, mm, regs);
-						saved_pte = pte;
+					if (cref < 5) {	/* for quick test */
+						patch_instr(refc,addr, mm, regs);
+						//tsk->saved_pte = pte;
 					} else
 						printk("refcount large enough. stop monitoring\n");
 
@@ -900,7 +948,7 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 
 	if (!inf->fn(addr, fsr & ~FSR_LNX_PF, regs)) {
 		/* xzl: exception handling okay */
-#if 1
+#if 0
 		tsk = current;
 		mm  = tsk->mm;
 		if (strncmp(tsk->comm, "xzltestprog", TASK_COMM_LEN) == 0) {

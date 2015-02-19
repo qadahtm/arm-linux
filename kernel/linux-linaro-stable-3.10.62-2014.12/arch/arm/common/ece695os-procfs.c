@@ -37,7 +37,7 @@ typedef struct procfs_entry_t {
 
 u32 mon_vaddr = 0;  /* the vaddr to monitor */
 
-extern void ece695_mask_page(unsigned long vaddr);	/* see fault.c */
+extern void ece695_mask_page_abs(unsigned long vaddr);	/* see fault.c */
 
 static int vaddr_write(struct file *file, const char __user *buffer, size_t count,
 			 loff_t *pos)
@@ -52,7 +52,7 @@ static int vaddr_write(struct file *file, const char __user *buffer, size_t coun
 	mon_vaddr = vaddr;
 	printk("write: mon_vaddr %08x\n", mon_vaddr);
 
-	ece695_mask_page(mon_vaddr);
+	ece695_mask_page_abs(mon_vaddr);
 
 	return count;
 }
