@@ -303,6 +303,35 @@ static int do_maps_open(struct inode *inode, struct file *file,
 //       return pte;    
 //}
 
+static void monitor_pte(struct task_struct * task, pte_t * cpte, unsigned long caddr){
+    struct refcount * refc;
+    
+    printk("starting to monitoring pte(%08lx), addr(%08lx)\n",(unsigned long)*cpte,caddr);
+    
+    if (NULL == (refc = (struct refcount *)kzalloc(
+                        sizeof(struct refcount), GFP_KERNEL))) {
+            printk(KERN_EMERG "[ERROR] kzalloc() failed. 2\n");
+            BUG();
+    }
+     // create refcount entry for this pte 
+    // reset count to 0
+    refc->n = 0;
+    refc->vaddr = caddr;
+    refc->pte = cpte;
+    refc->saved_instr = 0;
+    refc->saved_pc = 0;
+    refc->next = NULL;
+    if (task->refcount_head == NULL){
+        task->refcount_head = refc;
+        task->refcount_tail = refc;
+    }
+    else{
+        task->refcount_tail->next = refc;
+        task->refcount_tail = refc;
+    }
+    
+    ece695_mask_page(task, caddr);
+}
 /********/
 static void
 show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
@@ -320,8 +349,8 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
         unsigned long caddr=0;
         pte_t * cpte= NULL;
         int c = 0;
-//        struct mm_struct *pmm = task->active_mm;
-        struct mm_struct *pmm = task->mm;
+        struct mm_struct *pmm = task->active_mm;
+//        struct mm_struct *pmm = task->mm;
         struct refcount* refc = NULL;
         int file_seg = 0;
         int stack_seg = 0;
@@ -428,33 +457,27 @@ done:
                         if (*(refc->pte) == *cpte){
                             goto found_pte;
                         }
-
                         refc = refc->next;
                     }
                     found_pte:
                         if (refc != NULL){
+                            printk("found refcount for addr(%08lx) pte(%08lx), refcount = %d\n"
+                                    , caddr,(unsigned long)*cpte,refc->n);
                             seq_printf(m,"%d",refc->n);
                         }
                         else{
                             // pte is not being monitored
+                             
                             
                             // start monitoring it for future calls
                             // this will only work if we handle patching and 
                             // unpatching the next instructions proparly
-//                            ece695_mask_page(caddr);
-                            // partial solution turn on monitoring selectivly
-                            if (stack_seg == 1) {
-                                
-                                if (pte_young(*cpte)) seq_printf(m,"1");
-                                else seq_printf(m,"0");
-                                ece695_mask_page(task, caddr);
+                            
+//                            ece695_mask_page(task,caddr);
+//                             partial solution turn on monitoring selectivly
+                            if (stack_seg == 1 || file_seg == 1 || heap_seg == 1) {
+                                monitor_pte(task,cpte,caddr);
                             }
-//                            else 
-//                            if (file_seg == 1){
-//                                if (pte_young(*cpte)) seq_printf(m,"1");
-//                                else seq_printf(m,"0");
-//                                ece695_mask_page(task, caddr);
-//                            }
                             else 
                                 seq_printf(m,"n");
                         }
