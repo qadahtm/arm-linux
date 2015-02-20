@@ -303,19 +303,6 @@ static int do_maps_open(struct inode *inode, struct file *file,
 //       return pte;    
 //}
 
-static int match_pte(pte_t *pte, struct mm_struct  *mm, int usermode, unsigned long vaddr){
-    pte_t * npte= pte_lookup(mm,usermode,vaddr);
-    return ((*pte) == (*npte));
-}
-
-//static void pagetable_walk(struct mm_struct* mm){
-//    pgd_t *pgd; pmd_t *pmd; pte_t *pte;
-//    struct mm_walk pagemap_walk = {};
-//    struct pagemapread pm;
-//    unsigned long start_vaddr;
-//    unsigned long end_vaddr;
-//    
-//}
 /********/
 static void
 show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
@@ -343,40 +330,7 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 	dev_t dev = 0;
 	int len;
 	const char *name = NULL;
-#if 0 // Testing Code 
-//proc_refc_t * proc_refc_list = (proc_refc_t *) kzalloc(sizeof(proc_refc_t),GFP_KERNEL);
-//proc_refc_t *proc = NULL;
-//// Initialize of Null
-//if (proc_refc_list == NULL){
-//    proc_refc_list = (proc_refc_t *) kzalloc(sizeof(proc_refc_t),GFP_KERNEL);
-//printk("inialize proc_refc_list\n");
-//proc_refc_list->pid = 0;
-//proc_refc_list->pte_list = (pte_refc_t *) kzalloc(sizeof(pte_refc_t),GFP_KERNEL);
-//proc_refc_list->next = NULL;
-//
-//proc = (proc_refc_t *) kzalloc(sizeof(proc_refc_t), GFP_KERNEL);
-//proc->pid = 1;
-//proc->pte_list = (pte_refc_t *) kzalloc(sizeof(pte_refc_t),GFP_KERNEL);
-//proc->next = NULL;
-//
-//proc_refc_list->next = proc;
-//}
-//
-//proc = proc_refc_list;
-//while (proc != NULL) {
-//   seq_printf(m,"pid = %d\t", proc->pid);
-//   proc = proc->next;
-//}
-//        if (task)
-//            seq_printf(m,"current pid %d \t",(int)task->pid);
-     
-        
-#endif
-        
 
-
-
-/////
 	if (file) {
 		struct inode *inode = file_inode(vma->vm_file);
 		dev = inode->i_sb->s_dev;
@@ -495,7 +449,8 @@ done:
                                 else seq_printf(m,"0");
                                 ece695_mask_page(task, caddr);
                             }
-//                            else if (file_seg == 1){
+//                            else 
+//                            if (file_seg == 1){
 //                                if (pte_young(*cpte)) seq_printf(m,"1");
 //                                else seq_printf(m,"0");
 //                                ece695_mask_page(task, caddr);

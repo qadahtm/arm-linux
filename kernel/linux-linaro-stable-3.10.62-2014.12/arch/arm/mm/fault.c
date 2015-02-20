@@ -638,28 +638,15 @@ void ece695_mask_page_abs(unsigned long vaddr) {}
 
 void ece695_mask_page(struct task_struct *tsk, unsigned long vaddr)
 {
-//	struct task_struct *tsk;
-	struct mm_struct *mm = tsk->mm;
-	pte_t * pte;
+    pte_t * pte;
 
-//	if (!testmm) {
-//		printk("didn't see xzltestprog so far. do nothing.\n");
-//	}
-//	mm = testmm;
-//	show_pte(mm, vaddr);
-        
-        if (tsk && tsk->mm) {
-		
-		if (strncmp(tsk->comm, "xzltestprog", TASK_COMM_LEN) == 0) {
-                    	pte = pte_lookup(mm, 1, vaddr);
-                        printk("pte lookup returns %08x\n", (unsigned int)pte);
-                        if (pte == NULL) {
-                                printk("[ERROR] pte_lookup() failed\n");
-                                return;
-                        }
-                        mask_hwpte(pte);                 
-                }
-        }
+    pte = pte_lookup(tsk->mm, 1, vaddr);
+    printk("pte lookup returns %08x\n", (unsigned int)pte);
+    if (pte == NULL) {
+            printk("[ERROR] pte_lookup() failed\n");
+            return;
+    }
+    mask_hwpte(pte);                 
 
 }
 
@@ -677,8 +664,9 @@ void patch_instr(struct refcount* refc, unsigned long addr, struct mm_struct *mm
 	unsigned int instr;	/* the faulty instr */
 	unsigned int undef = BUG_INSTR_VALUE;
 	pte_t * pte;
+        pte_t * apte;
 	unsigned long hpte;
-        
+       
         /* Read the faulty instruction from pc */
 	if (get_user(instr, (u32 __user *)pc) == 0)
 		printk("faulty pc %08x, instr %08x\n", pc, instr);
@@ -743,22 +731,31 @@ void patch_instr(struct refcount* refc, unsigned long addr, struct mm_struct *mm
 	 */
 	pc += 4;
         
-        refc->saved_pc = pc; 	/* undefinstr handler will need this */
-	/* save the next user instruction */
-	if (get_user(refc->saved_instr, (u32 __user *)pc) == 0)
-		printk("to patch @%08x, saved instr %08x\n", pc, refc->saved_instr);
-	else {
-		printk("bug -- cannot read instr at %08x\n", pc);
-		BUG();
-	}
+//        apte = pte_lookup(mm,1,addr);
+//        refc = current->refcount_head;
+//        while (refc != NULL){
+//            if (*(refc->pte) == *apte) {
+                refc->saved_pc = pc; 	/* undefinstr handler will need this */
+                /* save the next user instruction */
+                if (get_user(refc->saved_instr, (u32 __user *)pc) == 0)
+                        printk("to patch @%08x, saved instr %08x\n", pc, refc->saved_instr);
+                else {
+                        printk("bug -- cannot read instr at %08x\n", pc);
+                        BUG();
+                }
 
-	/* overwrite the next user instruction as an undef instr */
-	if (put_user(undef, (u32 __user *)pc) == 0)
-		printk("write undef instr ok\n");
-	else {
-		printk("bug -- cannot write the undef instr. \n");
-		BUG();
-	}
+                /* overwrite the next user instruction as an undef instr */
+                if (put_user(undef, (u32 __user *)pc) == 0)
+                        printk("write undef instr ok\n");
+                else {
+                        printk("bug -- cannot write the undef instr. \n");
+                        BUG();
+                }
+//                break;
+//            }
+//        }
+        
+        
 
 #if 0
 	if (__copy_to_user((u32 __user *)pc, &undef, sizeof(unsigned int)) == 0)
@@ -794,7 +791,7 @@ int ece695_restore_saved_instr(struct pt_regs *regs)
         
         if (refc == NULL){
             printk("cannot find corresponding refc entry\n");
-            BUG();
+           // BUG();
             return -1;
         }
         
@@ -826,7 +823,7 @@ int ece695_restore_saved_instr(struct pt_regs *regs)
 	refc->saved_instr = 0;
 	refc->saved_pc = 0;
 
-	if (!refc->pte) {
+	if (!(refc->pte)) {
 		printk("bug -- no saved pte?\n");
 		BUG();
 	}
@@ -936,7 +933,7 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 					#endif
 
 					if (cref < 5) {	/* for quick test */
-						patch_instr(refc,addr, mm, regs);
+						patch_instr(refc, addr, mm, regs);
 						//tsk->saved_pte = pte;
 					} else
 						printk("refcount large enough. stop monitoring\n");
