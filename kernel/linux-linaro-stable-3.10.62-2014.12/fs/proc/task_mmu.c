@@ -394,7 +394,11 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 		seq_path(m, &file->f_path, "\n");
                 
 //                printk("tqadah : %s\n",file->f_path.dentry->d_iname);
-                if (strcmp(file->f_path.dentry->d_iname,"zero") == 0)
+                if (
+//                        strcmp(file->f_path.dentry->d_iname,"zero") == 0 
+//                        || 
+                        strcmp(file->f_path.dentry->d_iname,"xzltestprog") == 0
+                        )
                     file_seg = 1;
 		goto done;
 	}
@@ -477,6 +481,7 @@ done:
 //                             partial solution turn on monitoring selectivly
                             if (stack_seg == 1 || file_seg == 1 || heap_seg == 1) {
                                 monitor_pte(task,cpte,caddr);
+                                seq_printf(m,"%d",0);
                             }
                             else 
                                 seq_printf(m,"n");

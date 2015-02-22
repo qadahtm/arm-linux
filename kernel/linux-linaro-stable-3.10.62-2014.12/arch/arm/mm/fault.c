@@ -796,6 +796,7 @@ int ece695_restore_saved_instr(struct pt_regs *regs)
         
         if (current->refcount_head == NULL) {
             printk("refcount entry not initialized, not us. pass it up.\n");
+            return -1;
         }
         
         refc = current->refcount_head;
@@ -806,8 +807,8 @@ int ece695_restore_saved_instr(struct pt_regs *regs)
         
         while (refc != NULL){
             if (refc->saved_pc == pc){
-                printk("found matching pc = %08lx, vaddr = %08lx, pte = %08lx\n"
-                        ,(unsigned long) pc,refc->vaddr, (unsigned long) *(refc->pte));
+                printk("found matching pc = %08lx, vaddr = %08lx, pte = %08lx, refcount = %d\n"
+                        ,(unsigned long) pc,refc->vaddr, (unsigned long) *(refc->pte),refc->n);
                 break;
             }
             refc = refc->next;
@@ -918,8 +919,10 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 //								break;
 //							}
                                                     if (*(iter->pte) == *pte) {
-//								iter->n += 1;
-								break;
+                                                        iter->n += 1;
+                                                        cref = iter->n;
+                                                        refc = iter;
+                                                        break;
                                                     }
                                                     iter = iter->next;
 						}
@@ -942,12 +945,12 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
                                                         cref = newref->n;
                                                         refc = newref;
 						}
-                                                else{
-                                                    // found
-                                                    iter->n = (iter->n +1);
-                                                    cref = iter->n;
-                                                    refc = iter;
-                                                }
+//                                                else{
+//                                                    // found
+//                                                    iter->n = (iter->n +1);
+//                                                    cref = iter->n;
+//                                                    refc = iter;
+//                                                }
 					}
                                         printk("===> Woo-hoo! caught an access. refcount=%d for addr = %08lx, pte(%08lx)\n"
                                                 , cref, addr,(unsigned long)*pte);
