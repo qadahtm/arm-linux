@@ -269,37 +269,39 @@ static int do_maps_open(struct inode *inode, struct file *file,
 //static pte_t * 
 //get_pte(struct mm_struct mm, unsigned long addr){
 static pte_t *pte_lookup(struct mm_struct  *mm, int usermode, unsigned long addr){
+	//printk("[DEBUG] virtual addres to look up: 0x%lx\n", addr);
 
-    pgd_t *pgd; pmd_t *pmd; pte_t *pte;
+	pgd_t *pgd; pmd_t *pmd; pte_t *pte;
 
-//        pgd = pgd_offset(mm, addr);
-        pgd = mm->pgd;
-//         printk("tqadah: gets pgd @ %08x\n", (u32)pgd);
+    pgd = pgd_offset(mm, addr);
+    //pgd = mm->pgd;
+	
+    //printk("tqadah: pgd val %08x\n", (u32)pgd);
 
-       if (!pgd || !pgd_present(*pgd)) {
-//               printk("tqadah: bad pgd\n");
-               return NULL;
-       }
+    if (!pgd || !pgd_present(*pgd)) {
+    	printk("tqadah: bad pgd\n");
+        return NULL;
+    }
 
-       pmd = pmd_offset(pud_offset(pgd, addr), addr);
-       if (!pmd || !pmd_present(*pmd)) {
-//             printk("bad pmd\n");    // this can happen due to on-demand paging
-               return NULL;
-       }
-//	printk("tqadah: pmd val %08x\n", *pmd);
+    pmd = pmd_offset(pud_offset(pgd, addr), addr);
+    if (!pmd || !pmd_present(*pmd)) {
+        printk("tqadah: bad pmd @ addr:0x%lx\n", addr);    // this can happen due to on-demand paging
+        return NULL;
+    }
+	//printk("tqadah: pmd val %08x\n", *pmd);
 
-       pte = pte_offset_map(pmd, addr);
-       if (!pte) {
-//               printk("tqadah: fail to get pte\n");
-               return NULL;
-       }
+    pte = pte_offset_map(pmd, addr);
+    if (!pte) {
+    	printk("tqadah: fail to get pte\n");
+        return NULL;
+    } 
 
-       if (!pte_present(*pte) || (usermode && !pte_present_user(*pte))) {
-//             printk("tqadah: bad pte val %08x\n", *pte);  // can happen
-               return NULL;
-       }
-	printk("tqadah: looked up pte val %08x for addr(%08lx)\n", *pte,addr);
-       return pte;    
+    if (!pte_present(*pte) || (usermode && !pte_present_user(*pte))) {
+        //printk("tqadah: bad pte val %08x\n", *pte);  // can happen
+        return NULL;
+    }
+    //printk("tqadah: looked up pte val %08x for addr(%08lx)\n", *pte, addr);
+    return pte;    
 }
 
 
@@ -315,6 +317,9 @@ static pte_t *pte_lookup(struct mm_struct  *mm, int usermode, unsigned long addr
 static void
 show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 {
+	//printk(KERN_EMERG "show_map_vma() is called\n");
+	void ece695_mask_page(pte_t*); //Yiyang: declaration
+
 	struct mm_struct *mm = vma->vm_mm;
 	struct file *file = vma->vm_file;
 	struct proc_maps_private *priv = m->private;
@@ -333,6 +338,9 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 	dev_t dev = 0;
 	int len;
 	const char *name = NULL;
+
+	/* Yiyang */
+	struct refcount* iter = NULL;
 #if 0 // Testing Code 
 //proc_refc_t * proc_refc_list = (proc_refc_t *) kzalloc(sizeof(proc_refc_t),GFP_KERNEL);
 //proc_refc_t *proc = NULL;
@@ -357,9 +365,9 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 //   seq_printf(m,"pid = %d\t", proc->pid);
 //   proc = proc->next;
 //}
-//        if (task)
-//            seq_printf(m,"current pid %d \t",(int)task->pid);
      
+        if (task)
+            seq_printf(m,"current pid %d \t",(int)task->pid);
         
 #endif
         
@@ -392,6 +400,18 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 			pgoff,
 			MAJOR(dev), MINOR(dev), ino, &len);
         
+#if 1 // Yiyang		
+	printk(KERN_EMERG "[DEBUG] --------------------------------------------\n");
+	printk(KERN_EMERG "[DEBUG] %08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu %n\n",
+			start,
+			end,
+			flags & VM_READ ? 'r' : '-',
+			flags & VM_WRITE ? 'w' : '-',
+			flags & VM_EXEC ? 'x' : '-',
+			flags & VM_MAYSHARE ? 's' : 'p',
+			pgoff,
+			MAJOR(dev), MINOR(dev), ino, &len);
+#endif			
 	/*
 	 * Print the dentry name for named mappings, and a
 	 * special [heap] marker for the heap:
@@ -447,26 +467,83 @@ done:
         seq_printf(m,"\n");                
         caddr = start;
     
-        while (caddr < end){
+		#if 1 /* Yiyang: test: walk through the refcount link list in task_struct */
+			printk(KERN_EMERG "[DEBUG] @ task_mmu.c: Walk through the refcount link list\n");
+			iter = task->refcount_head;
+			while (iter != NULL) {
+				printk(KERN_EMERG "[DEBUG] 0x%x:%u\n", iter->cpte, iter->n);
+				iter = iter->next;
+			}
+		#endif
 
-            cpte = pte_lookup(pmm,0,caddr);
-            if (cpte != NULL){
-                if (pte_young(*cpte)){
-                    seq_printf(m,"1");
+        while (caddr < end){
+            //cpte = pte_lookup(pmm,0,caddr);
+            cpte = pte_lookup(pmm,1,caddr);
+
+			if (cpte != NULL && caddr == 0x40000000) {
+				ece695_mask_page(cpte); // Yiyang, turn on reference counting
+				printk(KERN_EMERG "[DEBUG] Turned on counting for pte:0x%x\n", *cpte);
+			}
+
+#if 0 /* Yiyang: test: search the refcount in link list */
+			if (cpte != NULL) {
+				printk("[DEBUG] Search the refcount in link list\n");
+				iter = task->refcount_head;
+				while (iter != NULL) {
+					if (iter->cpte == *cpte) {
+						printk("[DEBUG] 0x%x:refcount=%u\n", iter->cpte, iter->n);
+						seq_printf(m, "[DEBUG] 0x%x:refcount=%u\n", iter->cpte, iter->n);
+						break;
+					} 
+					iter = iter->next;
+				} if (iter == NULL) {
+					printk("[DEBUG] 0x%x:refcount=.\n", *cpte);
+					seq_printf(m, "[DEBUG] 0x%x:refcount=.\n", *cpte);
+				}
+
+			} else {
+				printk("[DEBUG] NULL:refcount=.\n");
+				seq_printf(m, "[DEBUG] NULL:refcount=.\n");
+			}
+#endif
+
+            if (cpte != NULL) {
+                if (pte_young(*cpte)) {
+                    //seq_printf(m,"1"); // Yiyang
+					/* Yiyang: read ref count in task_struct */
+					iter = task->refcount_head;
+					while (iter != NULL) {
+						if (iter->cpte == *cpte) {
+							//printk("[DEBUG] 0x%x:refcount=%u\n", iter->cpte, iter->n);
+							if (iter->n > 10) {
+								seq_putc(m, 'x');
+								//seq_printf(m, "x");
+							} else {
+								seq_putc(m, (char)(iter->n + '0'));
+							}
+							//seq_printf(m, "[DEBUG] 0x%x:refcount=%u\n", iter->cpte, iter->n);
+							break;
+						} 
+						iter = iter->next;
+					} if (iter == NULL) {
+						seq_putc(m, '.');
+						//printk("[DEBUG] 0x%x:refcount=.\n", *cpte);
+						//seq_printf(m, "[DEBUG] 0x%x:refcount=.\n", *cpte);
+					}
                 }
-                else{
+                else {
                     seq_printf(m," ");
                 }  
-            }
-            else{
+            } else {
                seq_printf(m,"."); 
             }
             c++;
             if ((c % 8) == 0) seq_printf(m," ");
             if ((c % 32) == 0) seq_printf(m,"\n");
             
-            caddr= caddr + (4*1024);
-            if ((end-caddr) > (end-start)) {
+            caddr = caddr + (4*1024);
+            //if ((end - caddr) > (end - start)) {
+            if (caddr >= end) {
                 printk("tqadah : caddr = %08lx, start = %08lx, end= %08lx", caddr, start, end);
                 goto endmywalk;
             }

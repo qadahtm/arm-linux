@@ -561,29 +561,29 @@ static pte_t *pte_lookup(struct mm_struct  *mm, int usermode, unsigned long addr
 
 	pgd = pgd_offset(mm, addr);
 
-	printk("gets pgd @ %08x\n", (u32)pgd);
+	//printk("gets pgd @ %08x\n", (u32)pgd);
 
 	if (!pgd || !pgd_present(*pgd)) {
-		printk("bad pgd\n");
+		//printk("bad pgd\n");
 		return NULL;
 	}
 
 	pmd = pmd_offset(pud_offset(pgd, addr), addr);
 	if (!pmd || !pmd_present(*pmd)) {
-		printk("bad pmd\n");	// this can happen due to on-demand paging
+		//printk("bad pmd\n");	// this can happen due to on-demand paging
 		return NULL;
 	}
 
-	printk("pmd val %08x\n", *pmd);
+	//printk("pmd val %08x\n", *pmd);
 
 	pte = pte_offset_map(pmd, addr);
 	if (!pte) {
-		printk("fail to get pte\n");
+		//printk("fail to get pte\n");
 		return NULL;
 	}
 
 	if (!pte_present(*pte) || (usermode && !pte_present_user(*pte))) {
-		printk("bad pte val %08x\n", *pte);  // can happen
+		//printk("bad pte val %08x\n", *pte);  // can happen
 		return NULL;
 	}
 
@@ -627,11 +627,22 @@ static int unmask_hwpte(pte_t *pte)
 }
 
 static struct mm * testmm = 0;
-static int ref= 0;
+static int ref = 0;
 static unsigned int saved_instr = 0;
 static unsigned int saved_pc = 0;
 static pte_t *saved_pte = 0; 	/* so that we don't have to lookup again */
 
+void ece695_mask_page(pte_t* pte)
+{
+	printk("pte lookup returns %08x\n", (unsigned int)pte);
+	if (pte == NULL) {
+		printk("[ERROR] pte_lookup() failed\n");
+		BUG();
+	}
+	mask_hwpte(pte);
+}
+
+#if 0 // Yiyang: comment out
 void ece695_mask_page(unsigned long vaddr)
 {
 	struct task_struct *tsk;
@@ -651,6 +662,7 @@ void ece695_mask_page(unsigned long vaddr)
 	}
 	mask_hwpte(pte);
 }
+#endif
 
 /* Replace the next user instruction as a special Undefined instruction, which
  * will trigger exception and thus trap into the kernel again.
@@ -829,6 +841,7 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 	if (current && current->mm) {
 		tsk = current; mm = current->mm;
 		if (strncmp(tsk->comm, "xzltestprog", TASK_COMM_LEN) == 0) {
+		//if (strncmp(tsk->comm, "sleep", TASK_COMM_LEN) == 0) {
 			pte = pte_lookup(mm, 1, addr);
 			if (pte) {
 				hpte = readl(hw_pte(pte));
@@ -845,20 +858,21 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 							BUG();
 						} 
 						newref->n = 1;
-						newref->vaddr = addr;
+						newref->cpte = *pte;
 						newref->next = NULL;
 						tsk->refcount_head = newref;
 						tsk->refcount_tail = newref;
+						printk(KERN_EMERG "[DEBUG] pid = %d\n", (int)tsk->pid);
 					} else {
-						/* search the link list to find the right vaddr */
+						/* search the link list to find the right pte */
 						iter = tsk->refcount_head;
 						while (iter != NULL) {
-							if (iter->vaddr == addr) {
+							if (iter->cpte == *pte) {
 								iter->n += 1;
 								break;
 							}
 						}
-						/* didn't find the vaddr in the link list, kzalloc a new one */
+						/* didn't find the pte in the link list, kzalloc a new one */
 						if (iter == NULL) {
 							if (NULL == (newref = 
 										(struct refcount *)kzalloc(
@@ -867,7 +881,7 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 								BUG();
 							} 
 							newref->n = 1;
-							newref->vaddr = addr;
+							newref->cpte = *pte;
 							newref->next = NULL;
 							tsk->refcount_tail->next = newref;
 							tsk->refcount_tail = newref;
@@ -875,10 +889,10 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 					}
 
 					#if 1 /* Yiyang: test: walk through the refcount link list */
-						printk("[DEBUG] Walk through the refcount link list\n");
+						printk(KERN_EMERG "[DEBUG] Walk through the refcount link list\n");
 						iter = tsk->refcount_head;
 						while (iter != NULL) {
-							printk("[DEBUG] 0x%x:%u\n", iter->vaddr, iter->n);
+							printk(KERN_EMERG "[DEBUG] 0x%x:%u\n", iter->cpte, iter->n);
 							iter = iter->next;
 						}
 					#endif

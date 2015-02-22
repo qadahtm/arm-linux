@@ -1059,7 +1059,7 @@ enum perf_event_task_context {
 
 /* Yiyang: struct for link list storing the page reference count */
 struct refcount {
-	unsigned long vaddr; // virtual address of a page
+	unsigned long cpte; // page table entry
 	unsigned int n; // number of references
 	struct refcount* next;
 };
