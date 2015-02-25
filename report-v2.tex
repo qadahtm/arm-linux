@@ -1,0 +1,142 @@
+\documentclass[11pt]{article}
+\usepackage{amsmath}
+\usepackage{amssymb}
+\usepackage{amsthm}
+\usepackage{amscd}
+\usepackage{amsfonts}
+\usepackage{graphicx}%
+\usepackage{fancyhdr}
+
+\usepackage{mathpazo}
+\usepackage[left=1.4in, right=1.4in]{geometry}
+
+\theoremstyle{plain} \numberwithin{equation}{section}
+\newtheorem{theorem}{Theorem}[section]
+\newtheorem{corollary}[theorem]{Corollary}
+\newtheorem{conjecture}{Conjecture}
+\newtheorem{lemma}[theorem]{Lemma}
+\newtheorem{proposition}[theorem]{Proposition}
+\theoremstyle{definition}
+\newtheorem{definition}[theorem]{Definition}
+\newtheorem{finalremark}[theorem]{Final Remark}
+\newtheorem{remark}[theorem]{Remark}
+\newtheorem{example}[theorem]{Example}
+\newtheorem{question}{Question} \topmargin-2cm
+
+%\textwidth6in
+
+\setlength{\topmargin}{0in} \addtolength{\topmargin}{-\headheight}
+\addtolength{\topmargin}{-\headsep}
+
+%\setlength{\oddsidemargin}{0in}
+
+%\oddsidemargin  0.0in 
+%\evensidemargin 0.0in 
+\parindent 0em
+\parskip 1em
+
+\pagestyle{fancy}\lhead{Visualizing Memory Pages} \rhead{Yiyang Chang and Thamir Qadah}
+\chead{{\large{\bf }}} \lfoot{} \rfoot{ } \cfoot{\thepage}
+
+\newcounter{list}
+
+
+\newcommand{\HRule}{\rule{\linewidth}{0.5mm}}
+\newcommand{\Hrule}{\rule{\linewidth}{0.3mm}}
+
+\makeatletter% since there's an at-sign (@) in the command name
+\renewcommand{\@maketitle}{%
+  \parindent=0pt% don't indent paragraphs in the title block
+  
+  \begin{flushright}
+  \@author \\ \@date
+  \end{flushright}
+  
+  \centering
+  {\Large {\@title}}
+  %\HRule\par%
+  %\vspace{0.1in}
+  \par
+}
+\makeatother% resets the meaning of the at-sign (@)
+
+
+
+
+
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+\title{ECE695 Programming Assignment 2: Visualizing Memory Pages}
+\author{Yiyang Chang and Thamir Qadah}
+\date{chang256@purdue.edu, tqadah@purdue.edu}
+
+\begin{document}
+%\raisebox{1cm}
+
+\maketitle
+
+\section{Overall Design}
+\vspace{-0.1in}
+We modify linux kernel for ARM to support visualizing memory page reference
+counts. We augment linux /proc file system to display a number for each memory
+page. The counting is enabled by calling ``/proc/PID/maps'', and the reference
+counts are maintained up to 9 and x for counts larger than 9 for the sake of
+clean display. 
+
+The counting is done in linux exception handlers. We use do\_DataAbort for data pages and 
+do\_PrefetchAbort for code pages. Monitoring of pages stats with the fist read of 
+``/proc/PID/maps''. At this time, we invalidate all the hptes mapped from each virtual 
+address and trigger exceptions. Once invalidated, we trap the page fault based on the 
+type of the page, and update a counter for that page. 
+
+For each process, a linked list containing the page access counts for all monitored page 
+table entries (ptes). We also, keep other information such as the following:
+\begin{itemize}
+	\item Hardware ptes in order to restore them when unmasking.
+	\item Page type: this refers if the page is a code page, a data page or others. 
+	\item Saved PC and saved patched instruction for trapping user process after 
+unmasking. 
+	\end{itemize}
+
+
+\section{Features}
+\vspace{-0.1in}
+\begin{itemize}
+	\item Turn on reference counting by calling ``/proc/PID/maps''. 
+	\item Reference counting (0-9, x for above 9) for memory pages
+	\item Swap following instructions to generate undefined instruction
+		exception for both ARM and thumb instructions 
+	\end{itemize}
+
+\section{Interesting Implementation}
+\vspace{-0.1in}
+\begin{itemize}
+	\item Maintain the reference counting in a linked list in task\_struct. This 
+allows us to maintain large counters up to . However, this will impact the one digit 
+visualization specs. 
+	\item Distinguish between ARM and thumb instructions when patching the next 
+instruction to trap the user process execution. However, since Thumb instructions 
+requires decoding, patching is not implmented and thus disable monitoring for that 
+particular page. 
+    \item We also introduce additional legends for virtual page visualization with 
+/prog/PID/maps. In particular, for pages that are not monitored, we display "n" as an 
+indicator for no monitoring. 
+\end{itemize}
+
+\section{Known Issues and Bugs}
+\vspace{-0.1in}
+\begin{itemize}
+	\item We monitor only specific vmas such as code segment, data, segment, heap and 
+stack. 
+	\item Sometimes crashes when library pages are being monitored with (kernel panic 
+- not syncing: Attempted to kill inint) but counts correctly. By default, tracking 
+library pages needs to be turned on explicitly in the code. (ref. L393 in 
+``fs/proc/task\_mmu.c'' )
+	\item Some counts are not reflected immediately. 
+    \item Only do counting for a predefined process. 
+    
+\end{itemize}
+
+\end{document}

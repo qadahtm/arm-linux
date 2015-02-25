@@ -448,7 +448,7 @@ done:
 
             cpte = pte_lookup(task,1,caddr);
             if (cpte != NULL){
-                if (strncmp(task->comm, "xzltestprog", TASK_COMM_LEN) == 0) {
+//                if (strncmp(task->comm, "xzltestprog", TASK_COMM_LEN) == 0) {
                     refc = task->refcount_head;
                     
                     //look up corresponding refcount struct
@@ -495,15 +495,15 @@ done:
                             else 
                                 seq_printf(m,"n");
                         }
-                }
-                else{
-                    if (pte_young(*cpte)){
-                        seq_printf(m,"1");
-                    }
-                    else{
-                        seq_printf(m,"0");
-                    }  
-                }
+//                }
+//                else{
+//                    if (pte_young(*cpte)){
+//                        seq_printf(m,"1");
+//                    }
+//                    else{
+//                        seq_printf(m,"0");
+//                    }  
+//                }
             }
             else{
                seq_printf(m,"."); 
