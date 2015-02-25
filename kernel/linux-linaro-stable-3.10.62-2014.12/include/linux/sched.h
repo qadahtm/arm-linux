@@ -1057,14 +1057,19 @@ enum perf_event_task_context {
 	perf_nr_task_contexts,
 };
 
-/* Yiyang: struct for link list storing the page reference count */
+/* Yiyang: struct for link list storing the page reference count
+ * tqadah: updated to include other meta data about pages
+ *  */
 struct refcount {
 	unsigned long vaddr; // virtual address of a page
 	unsigned int n; // number of references
         pte_t *pte;
+        unsigned long hpte;
         unsigned int saved_pc;
         unsigned int saved_instr;  
-	struct refcount* next;
+	unsigned int page_type; // 0 -> Data Page, 1-> Code Page, 2-> Other Pages
+        unsigned int valid_page;
+        struct refcount* next;
 };
 
 
@@ -1075,9 +1080,6 @@ struct task_struct {
 	unsigned int flags;	/* per process flags, defined below */
 	unsigned int ptrace;
         
-	struct refcount * refcount_head; // Yiyang: link list head for refcount
-	struct refcount * refcount_tail; // Yiyang: link list tail for refcount
-
 #ifdef CONFIG_SMP
 	struct llist_node wake_entry;
 	int on_cpu;
@@ -1463,6 +1465,9 @@ struct task_struct {
 	unsigned int	sequential_io;
 	unsigned int	sequential_io_avg;
 #endif
+
+        struct refcount * refcount_head; // Yiyang: link list head for refcount
+        struct refcount * refcount_tail; // Yiyang: link list tail for refcount
 };
 
 /* Future-safe accessor for struct task_struct's cpus_allowed. */

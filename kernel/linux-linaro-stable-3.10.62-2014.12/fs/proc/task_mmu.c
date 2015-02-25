@@ -21,12 +21,15 @@
 /* tqadah */
 #include <asm/bug.h>
 #include <asm/pgtable.h>
+#include <linux/string.h>
 
 /***********/
 #include "internal.h"
 
-extern pte_t *pte_lookup(struct mm_struct  *mm, int usermode, unsigned long addr); // see fault.c
+extern pte_t *pte_lookup(struct task_struct  *task, int usermode, unsigned long addr); // see fault.c
 extern void ece695_mask_page(struct task_struct *task, unsigned long vaddr); // see fault.c
+extern struct refcount * refc_lookup(struct task_struct *task, pte_t * pte);
+extern void mask_hwpte(struct refcount * refc);
 
 void task_mem(struct seq_file *m, struct mm_struct *mm)
 {
@@ -266,60 +269,48 @@ static int do_maps_open(struct inode *inode, struct file *file,
 	return ret;
 }
 
-/*tqadah*/
-
-
-//static pte_t *pte_lookup(struct mm_struct  *mm, int usermode, unsigned long addr){
-//
-//    pgd_t *pgd; pmd_t *pmd; pte_t *pte;
-//
-//        pgd = pgd_offset(mm, addr);
-////        pgd = mm->pgd;
-////         printk("tqadah: gets pgd @ %08x\n", (u32)pgd);
-//
-//       if (!pgd || !pgd_present(*pgd)) {
-////               printk("tqadah: bad pgd\n");
-//               return NULL;
-//       }
-//
-//       pmd = pmd_offset(pud_offset(pgd, addr), addr);
-//       if (!pmd || !pmd_present(*pmd)) {
-////             printk("bad pmd\n");    // this can happen due to on-demand paging
-//               return NULL;
-//       }
-////	printk("tqadah: pmd val %08x\n", *pmd);
-//
-//       pte = pte_offset_map(pmd, addr);
-//       if (!pte) {
-////               printk("tqadah: fail to get pte\n");
-//               return NULL;
-//       }
-//
-//       if (!pte_present(*pte) || (usermode && !pte_present_user(*pte))) {
-////             printk("tqadah: bad pte val %08x\n", *pte);  // can happen
-//               return NULL;
-//       }
-//	//printk("tqadah: looked up pte val %08x for addr(%08lx)\n", *pte,addr);
-//       return pte;    
-//}
-
-static void monitor_pte(struct task_struct * task, pte_t * cpte, unsigned long caddr){
+static void monitor_pte(struct task_struct * task, pte_t * cpte, unsigned long addr){
     struct refcount * refc;
+    unsigned long t_start_code = task->active_mm->start_code;
+    unsigned long t_end_code = task->active_mm->end_code;
+    unsigned long t_start_data = task->active_mm->start_data;
+    unsigned long t_end_data = task->active_mm->end_data;
     
-    printk("starting to monitoring pte(%08lx), addr(%08lx)\n",(unsigned long)*cpte,caddr);
+//    printk("monitor_pte: starting to monitoring pte(%08lx), addr(%08lx)\n",(unsigned long)*cpte,caddr);
     
     if (NULL == (refc = (struct refcount *)kzalloc(
                         sizeof(struct refcount), GFP_KERNEL))) {
-            printk(KERN_EMERG "[ERROR] kzalloc() failed. 2\n");
+            printk( "[ERROR] kzalloc() failed. 2\n");
             BUG();
     }
      // create refcount entry for this pte 
     // reset count to 0
     refc->n = 0;
-    refc->vaddr = caddr;
+    refc->vaddr = addr;
     refc->pte = cpte;
     refc->saved_instr = 0;
     refc->saved_pc = 0;
+    refc->valid_page = 1;
+//    printk("monitor_pte: determining page type for (%08lx)\n",addr);
+    
+    if (addr >= t_start_code && addr < t_end_code){
+        // code page
+        printk("monitor_pte: start_code(%08lx) end_code(%08lx)\n",t_start_code,t_end_code);
+        printk("monitor_pte: masking a code page at (%08lx)\n",addr);
+        refc->page_type = 1;        
+    }
+    else if (addr >= t_start_data && addr < t_end_data){
+        // data page
+        printk("monitor_pte: start_data(%08lx) end_data(%08lx)\n",t_start_data,t_end_data);
+        printk("monitor_pte: masking a data page at (%08lx)\n",addr);        
+        refc->page_type = 0;
+    }
+    else{
+    // no patching for other pages, i.e. disable counting
+        printk("monitor_pte: masking other page at (%08lx)\n",addr);
+        refc->page_type = 2;
+    }
+    
     refc->next = NULL;
     if (task->refcount_head == NULL){
         task->refcount_head = refc;
@@ -330,7 +321,10 @@ static void monitor_pte(struct task_struct * task, pte_t * cpte, unsigned long c
         task->refcount_tail = refc;
     }
     
-    ece695_mask_page(task, caddr);
+//    printk("moinitor_pte: refcount data struct is created for pte(%08lx), addr(%08lx) and pid(%d)\n",
+//            (unsigned long)*cpte,caddr,task->pid);
+//    ece695_mask_page(task, refc);
+    mask_hwpte(refc);
 }
 /********/
 static void
@@ -349,8 +343,6 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
         unsigned long caddr=0;
         pte_t * cpte= NULL;
         int c = 0;
-        struct mm_struct *pmm = task->active_mm;
-//        struct mm_struct *pmm = task->mm;
         struct refcount* refc = NULL;
         int file_seg = 0;
         int stack_seg = 0;
@@ -397,7 +389,8 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
                 if (
 //                        strcmp(file->f_path.dentry->d_iname,"zero") == 0 
 //                        || 
-                        strcmp(file->f_path.dentry->d_iname,"xzltestprog") == 0
+//                        strcmp(file->f_path.dentry->d_iname,"xzltestprog") == 0
+                        !strstr(file->f_path.dentry->d_iname,".so")
                         )
                     file_seg = 1;
 		goto done;
@@ -453,21 +446,28 @@ done:
     
         while (caddr < end){
 
-            cpte = pte_lookup(pmm,1,caddr);
+            cpte = pte_lookup(task,1,caddr);
             if (cpte != NULL){
                 if (strncmp(task->comm, "xzltestprog", TASK_COMM_LEN) == 0) {
                     refc = task->refcount_head;
+                    
+                    //look up corresponding refcount struct
                     while (refc != NULL){
                         if (*(refc->pte) == *cpte){
-                            goto found_pte;
+                            break;
                         }
                         refc = refc->next;
                     }
-                    found_pte:
                         if (refc != NULL){
-                            printk("found refcount for addr(%08lx) pte(%08lx), refcount = %d\n"
-                                    , caddr,(unsigned long)*cpte,refc->n);
-                            seq_printf(m,"%d",refc->n);
+//                            printk("show_vma_map: found refcount for addr(%08lx) pte(%08lx), refcount = %d\n"
+//                                    , caddr,(unsigned long)*cpte,refc->n);
+                            if (refc->n < 10){
+                                seq_printf(m,"%d",refc->n);
+                            }
+                            else{
+                                seq_putc(m,'x');
+                                // clean up??
+                            }
                         }
                         else{
                             // pte is not being monitored
@@ -479,9 +479,18 @@ done:
                             
 //                            ece695_mask_page(task,caddr);
 //                             partial solution turn on monitoring selectivly
-                            if (stack_seg == 1 || file_seg == 1 || heap_seg == 1) {
-                                monitor_pte(task,cpte,caddr);
-                                seq_printf(m,"%d",0);
+                            if (stack_seg == 1 
+                                || file_seg == 1 
+                                || heap_seg == 1
+                                ) {
+//                                if (!(task->active_mm->start_code <= caddr && task->active_mm->end_code >= caddr))
+//                                {
+                                    monitor_pte(task,cpte,caddr);
+                                    seq_printf(m,"%d",0);
+//                                }
+//                                else{
+//                                    seq_putc(m,'c');
+//                                }
                             }
                             else 
                                 seq_printf(m,"n");
