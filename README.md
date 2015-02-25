@@ -1,17 +1,28 @@
 # arm-linux
 
 ## Useful commands:
-### Running qemu
+* Compiling kernel
 
 ```
-qemu-system-arm -M vexpress-a9 -cpu cortex-a9 \
--kernel ${MYKERNEL_PATH} \
--initrd ${MYINITRD_PATH} \
--sd ../vexpress-raring_developer_20130723-408.img \
--serial stdio -m 1024 \
--display none \
--append 'root=/dev/mmcblk0p2 rw mem=1024M raid=noautodetect console=ttyAMA0,38400n8 rootwait vmalloc=256MB devtmpfs.mount=0' \
--smp 4
+source CONFIG
+./build.sh
 ```
 
-Change display none for X forwarding. 
+* Running qemu
+
+```
+./runQemu.sh
+```
+
+* Running test case
+	+ NOTE: This should be down inside qemu. 
+	+ The directory "test" contains the source of test code inside qemu
+	```
+	./build.sh		# build source of test case
+	./test.sh		# run test case
+	cat /proc/<PID>/maps	# check proc fs
+	```
+	+ The numbers or "x" shown up are the reference counts
+
+
+
