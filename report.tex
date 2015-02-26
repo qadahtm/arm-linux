@@ -1,4 +1,4 @@
-\documentclass[11pt]{article}
+\documentclass[10pt]{article}
 \usepackage{amsmath}
 \usepackage{amssymb}
 \usepackage{amsthm}
@@ -8,7 +8,7 @@
 \usepackage{fancyhdr}
 
 \usepackage{mathpazo}
-\usepackage[left=1.4in, right=1.4in]{geometry}
+\usepackage[left=1.2in, right=1.2in, top=1.2in, bottom=1in]{geometry}
 
 \theoremstyle{plain} \numberwithin{equation}{section}
 \newtheorem{theorem}{Theorem}[section]
@@ -78,38 +78,87 @@
 \maketitle
 
 \section{Overall Design}
-\vspace{-0.1in}
+\vspace{-0.2in}
 We modify linux kernel for ARM to support visualizing memory page reference
 counts. We augment linux /proc file system to display a number for each memory
-page. The counting is enabled by calling ``/proc/PID/maps'', and the reference
+page. The counting is enabled by calling /proc/PID/maps, and the reference
 counts are maintained up to 9 and x for counts larger than 9 for the sake of
 clean display. 
 
-The counting is done in linux exception handlers. We invalidate all the hptes
-mapped from each virtual address and trigger data abort exception, and capture
-the exception to accomplish reference counting.
+The counting is done inside linux exception handlers. We use do\_DataAbort for
+data pages and do\_PrefetchAbort for code pages. Page monitoring is turned on with
+the fist read of /proc/PID/maps. At this time, we invalidate all hptes
+mapped from each virtual address and trigger exceptions. Once invalidated, we
+trap the page fault based on the type of pages, and update a counter for
+that page. 
+
+For each process, a linked list containing the page access counts for all monitored page 
+table entries (ptes). We also, keep other information such as the following:
+
+\vspace{-0.2in}
+\begin{itemize}
+	\item Hardware ptes in order to restore them when unmasking.
+	\vspace{-0.1in}
+	\item Page type: this refers if the page is a code page, a data page or others. 
+	\vspace{-0.1in}
+	\item Saved PC and saved patched instruction for trapping user process after 
+	\vspace{-0.1in}
+unmasking. 
+	\end{itemize}
+
 
 \section{Features}
-\vspace{-0.1in}
+\vspace{-0.2in}
 \begin{itemize}
-	\item Turn on reference counting by calling ``/proc/PID/maps''
+	\item Turn on reference counting by calling /proc/PID/maps. 
+	\vspace{-0.1in}
 	\item Reference counting (0-9, x for above 9) for memory pages
+	\vspace{-0.1in}
 	\item Swap following instructions to generate undefined instruction
 		exception for both ARM and thumb instructions 
+	\vspace{-0.1in}
 	\end{itemize}
 
 \section{Interesting Implementation}
-\vspace{-0.1in}
+\vspace{-0.2in}
 \begin{itemize}
-	\item Maintain the reference counting data structure in task\_struct
-	\item Take care of both ARM and thumb instructions in instruction patching
+	\item Maintain the reference counting in a linked list in task\_struct. This 
+allows us to maintain large counters up to . However, this will impact the one digit 
+visualization specs. 
+	\vspace{-0.1in}
+	\item Distinguish between ARM and thumb instructions when patching the next 
+instruction to trap the user process execution. However, since Thumb instructions 
+requires decoding, patching is not implemented and thus disable monitoring for that 
+particular page. 
+	\vspace{-0.1in}
+	\item We also introduce additional legends for virtual page visualization with 
+/prog/PID/maps. In particular, for pages that are not monitored, we display "n" as an 
+indicator for no monitoring. 
+	\vspace{-0.1in}
+	\item Through debugging, we realize that one instruction could trigger
+	both data abort and prefetch abort, which results in patching the
+	following instruction multiple times. This needs to be carefully
+	handled because it does not make sense to restore an undefined
+	instruction.
+	\vspace{-0.1in}
 \end{itemize}
 
-\section{Known Bugs}
-\vspace{-0.1in}
+\section{Known Issues and Bugs}
+\vspace{-0.2in}
 \begin{itemize}
-	\item Does not work for code pages and library pages
-	\item Only does counting for a given process
+	\item We monitor only specific vmas such as code segment, data, segment, heap and 
+stack. 	    
+	\vspace{-0.1in}
+	\item Sometimes kernel crashes when library pages are being monitored
+	with (kernel panic - not syncing: Attempted to kill init) but counts
+	correctly. By default, tracking library pages needs to be turned on
+	explicitly in the code. (ref. L405 in ``fs/proc/task\_mmu.c'')
+	\vspace{-0.1in}
+	\item Some counts are not reflected immediately. 
+	\vspace{-0.1in}
+	\item Only do counting for a predefined process. 
+	\vspace{-0.1in}
+    
 \end{itemize}
 
 \end{document}

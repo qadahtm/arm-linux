@@ -321,8 +321,7 @@ static void monitor_pte(struct task_struct * task, pte_t * cpte, unsigned long a
         task->refcount_tail = refc;
     }
     
-//    printk("moinitor_pte: refcount data struct is created for pte(%08lx), addr(%08lx) and pid(%d)\n",
-//            (unsigned long)*cpte,caddr,task->pid);
+    printk("monitor_pte: refcount data struct is created for pte(%08lx), addr(%08lx) and pid(%d)\n", (unsigned long)*cpte, addr, task->pid);
 //    ece695_mask_page(task, refc);
     mask_hwpte(refc);
 }
@@ -347,10 +346,13 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
         int file_seg = 0;
         int stack_seg = 0;
         int heap_seg = 0;
+	int other_seg = 0;
         
 	dev_t dev = 0;
 	int len;
 	const char *name = NULL;
+	
+	//printk(KERN_EMERG "[DEBUG] ---- show_map_vma is called\n");
 
 	if (file) {
 		struct inode *inode = file_inode(vma->vm_file);
@@ -366,6 +368,16 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 	end = vma->vm_end;
 	if (stack_guard_page_end(vma, end))
 		end -= PAGE_SIZE;
+
+	//printk(KERN_EMERG "%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu %n\n",
+	//		start,
+	//		end,
+	//		flags & VM_READ ? 'r' : '-',
+	//		flags & VM_WRITE ? 'w' : '-',
+	//		flags & VM_EXEC ? 'x' : '-',
+	//		flags & VM_MAYSHARE ? 's' : 'p',
+	//		pgoff,
+	//		MAJOR(dev), MINOR(dev), ino, &len);
 
 	seq_printf(m, "%08lx-%08lx %c%c%c%c %08llx %02x:%02x %lu %n",
 			start,
@@ -402,6 +414,7 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
 
 		if (!mm) {
 			name = "[vdso]";
+			other_seg = 1;
 			goto done;
 		}
 
@@ -430,7 +443,8 @@ show_map_vma(struct seq_file *m, struct vm_area_struct *vma, int is_pid)
                                 stack_seg=1;
 			}
 		}
-	}
+	} else
+		other_seg = 1;
 
 done:
 	if (name) {
@@ -482,6 +496,7 @@ done:
                             if (stack_seg == 1 
                                 || file_seg == 1 
                                 || heap_seg == 1
+				//|| other_seg == 1
                                 ) {
 //                                if (!(task->active_mm->start_code <= caddr && task->active_mm->end_code >= caddr))
 //                                {

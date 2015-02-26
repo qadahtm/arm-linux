@@ -184,13 +184,15 @@ pte_t *pte_lookup(struct task_struct  *task, int usermode, unsigned long addr)
 }
 
 
-struct refcount * refc_lookup(struct task_struct *task, pte_t * pte){
+struct refcount * refc_lookup(struct task_struct *task, pte_t * pte, unsigned long addr){
     struct refcount* iter = NULL;
     
     iter = task->refcount_head;
     while (iter != NULL) {
-        if (*(iter->pte) == *pte) {
-            printk("refc_lookup: found refc for pte(%08lx), refcount = %d\n", (unsigned long) *pte, iter->n);
+        //if (*(iter->pte) == *pte) 
+        if (*(iter->pte) == *(pte_lookup(task, 1, (addr & 0xfffff000)))) 
+	{
+            printk("refc_lookup: found refc for pte(%08lx), refcount = %d, addr = %08lx\n", (unsigned long) *pte, iter->n, addr);
             return iter;
         }
         iter = iter->next;
@@ -318,6 +320,7 @@ void patch_instr(struct refcount* refc, unsigned long addr,struct task_struct * 
 	pte_t * pte;
 	unsigned long hpte;
         struct mm_struct *mm = task->mm;
+	struct refcount* iter;
         
         /* Read the faulty instruction from pc */
 	if (get_user(instr, (u32 __user *)pc) == 0){
@@ -418,7 +421,22 @@ void patch_instr(struct refcount* refc, unsigned long addr,struct task_struct * 
         }
         
         pc += 4;
-        
+
+	/* Yiyang: check if the next pc has been touched */
+	iter = task->refcount_head;
+	if (iter == NULL) {
+		printk(KERN_EMERG "Should not happen!\n");
+		BUG();
+	}
+	while (iter != NULL) {
+		if (iter->saved_pc == pc) {
+			refc->saved_pc = pc;
+			refc->saved_instr = iter->saved_instr;
+			goto endpatch;
+		}
+		iter = iter->next;
+	}
+	
         refc->saved_pc = pc; 	/* undefinstr handler will need this */
         /* save the next user instruction */
         if (get_user(refc->saved_instr, (u32 __user *)pc) == 0)
@@ -465,6 +483,10 @@ int ece695_restore_saved_instr(struct pt_regs *regs)
 	unsigned int pc;
 	unsigned int instr;
         struct refcount * refc;
+        struct refcount * iter;
+	int flag_instr_put_back = 0;
+	int number_refc_found = 0;
+	int ret_n = -1;
         
         
 //        printk( "restore  instr :task pid(%d).\n",(int)current->pid);
@@ -475,59 +497,83 @@ int ece695_restore_saved_instr(struct pt_regs *regs)
 //        printk( "restore  instr : lookup refc for pc = %08lx\n",(unsigned long)pc);
         
         refc = current->refcount_head;        
-        if (current->refcount_head == NULL) {
-            printk( "restore  instr : refcount entry not initialized, not us. pass it up.\n");
+        if (refc == NULL) {
+            printk( "restore instr : refcount entry not initialized, not us. pass it up.\n");
             return -1;
         }
-        
+
+        #if 0 /* Yiyang: test: walk through the refcount link list */
+		iter = refc;
+		printk(KERN_EMERG "[DEBUG] Walk through the refcount link list\n");
+		while (iter != NULL) {
+			printk(KERN_EMERG "-----------------\n");
+			printk(KERN_EMERG "==== vaddr:	0x%x\n", iter->vaddr);
+			printk(KERN_EMERG "==== n:	%d\n", iter->n);
+			printk(KERN_EMERG "==== pte:	0x%x\n", *(iter->pte));
+			printk(KERN_EMERG "==== hpte:	0x%x\n", iter->hpte);
+			printk(KERN_EMERG "==== pc:	0x%x\n", iter->saved_pc);
+			printk(KERN_EMERG "==== instr:	0x%x\n", iter->saved_instr);
+			iter = iter->next;
+		}
+	#endif
+
         while (refc != NULL){
             if (refc->saved_pc == pc){
-                printk( "restore  instr : found matching pc = %08lx, vaddr = %08lx, pte = %08lx, refcount = %d\n"
-                        ,(unsigned long) pc,refc->vaddr, (unsigned long) *(refc->pte),refc->n);
-                break;
+		number_refc_found += 1;
+                printk( "restore instr : found matching pc = %08lx, vaddr = %08lx, pte = %08lx, refcount = %d\n" ,(unsigned long) pc,refc->vaddr, (unsigned long) *(refc->pte),refc->n);
+
+		if ((!refc->saved_instr) || (!refc->saved_pc)) {
+			printk( "restore instr : no saved instr found -- why?\n");
+			return -1;
+		}
+			
+		printk( "restore instr: oh this undefinstr is planted by us. \n");
+		//get_user(instr, (u32 __user *)pc);
+		//printk( "restore instr : read: faulty pc %08x, instr %08x\n", pc, instr);
+
+		if (flag_instr_put_back == 0) {
+			if (0 == (ret_n = put_user(refc->saved_instr, (u32 __user *)pc))) {
+				printk( "restore instr ok -- user good to go\n");
+				flag_instr_put_back = 1;
+			} else {
+				printk( "bug -- cannot restore instr. \n");
+				BUG();
+			}
+		} else {
+			printk("restore instr: instr has been restored\n");
+		}		
+
+		/* XXX: make the instruction page as r/o for security */
+
+		//get_user(instr, (u32 __user *)pc);
+		//printk( "restore instr : read again: faulty pc %08x, instr %08x\n", pc, instr);
+
+		refc->saved_instr = 0;
+		refc->saved_pc = 0;
+
+		if (!(refc->pte)) {
+			printk( "bug -- no saved pte?\n");
+			BUG();
+		}
+		
+		// mask to capture next access
+		mask_hwpte(refc);
+
             }
             refc = refc->next;
         }
         
-        if (refc == NULL){
-            printk( "restore  instr : cannot find corresponding refc entry for pc(%08x)\n",pc);
+        //if (refc == NULL)
+        if (!number_refc_found)
+	{
+            printk( "restore instr : cannot find corresponding refc entry for pc(%08x)\n",pc);
             return -1;
         }
         else{
-            printk( "restore  instr : found corresponding refc entry for pc(%08x) , addr(%08lx)\n",pc,refc->vaddr);
+            printk( "restore instr : found corresponding refc entry for pc(%08x)\n",pc);
+            //printk( "restore instr : found corresponding refc entry for pc(%08x) , addr(%08lx)\n",pc,refc->vaddr);
         }
         
-        if ((!refc->saved_instr) || (!refc->saved_pc)) {
-		printk( "restore  instr : no saved instr found -- why?\n");
-		return -1;
-	}
-                
-	printk( "restore  instr : oh this undefinstr is planted by us. \n");
-	get_user(instr, (u32 __user *)pc);
-	printk( "restore  instr : read: faulty pc %08x, instr %08x\n", pc, instr);
-
-	if (put_user(refc->saved_instr, (u32 __user *)pc) == 0)
-		printk( "restore instr ok -- user good to go\n");
-	else {
-		printk( "bug -- cannot restore instr. \n");
-		BUG();
-	}
-
-	/* XXX: make the instruction page as r/o for security */
-
-	get_user(instr, (u32 __user *)pc);
-	printk( "restore  instr : read again: faulty pc %08x, instr %08x\n", pc, instr);
-
-	refc->saved_instr = 0;
-	refc->saved_pc = 0;
-
-	if (!(refc->pte)) {
-		printk( "bug -- no saved pte?\n");
-		BUG();
-	}
-        
-        // mask to capture next access
-        mask_hwpte(refc);
 	return 0;
 }
 
@@ -555,7 +601,8 @@ struct refcount* update_refcount(struct task_struct *tsk, pte_t * pte, unsigned 
         cref = newref->n;
         refc = newref;
     } else {
-        refc = refc_lookup(tsk,pte);
+        //refc = refc_lookup(tsk,pte);
+        refc = refc_lookup(tsk, pte, addr);
         
         if (refc == NULL) {
             // refc not found for pte (unlikely)
@@ -594,11 +641,11 @@ struct refcount* update_refcount(struct task_struct *tsk, pte_t * pte, unsigned 
 //        unmask_hwpte(refc);
     }
     else if (refc->page_type == 0) {
-        printk( "===> (data_page) Woo-hoo! caught an access. refcount=%d for addr = %08lx, pte(%08lx)\n"
+        printk( "===> (data page) Woo-hoo! caught an access. refcount=%d for addr = %08lx, pte(%08lx)\n"
                 , cref, addr, (unsigned long) *pte);
     }
     else{
-       printk( "===> (other_page) Woo-hoo! caught an access. refcount=%d for addr = %08lx, pte(%08lx)\n"
+       printk( "===> (other page) Woo-hoo! caught an access. refcount=%d for addr = %08lx, pte(%08lx)\n"
                 , cref, addr, (unsigned long) *pte); 
     }
     
@@ -609,8 +656,6 @@ struct refcount* update_refcount(struct task_struct *tsk, pte_t * pte, unsigned 
     } else
         printk( "update_refcount: refcount large enough. stop monitoring\n");
            
-    
-    
     return refc;
 }
 
@@ -1118,8 +1163,6 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
         struct refcount * refc;
 	unsigned long hpte;
 
-	
-
 	/* xzl: we have a fault; is the fault caused by us? */
 	// (fsr & FSR_FS3_0) == PAGE_TRANSLATION_FAULT) ??
 #if 1	/* simple heuristics. you can go fancy of course */
@@ -1138,7 +1181,7 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 //                                printk( "data abort: read hwpte(%08lx) for addr(%08lx)\n", hpte,addr);
 				if (hpte && (!(hpte & 0x3))) {
 					/* hw pte has bit set, but invalid. seems planted by us */
-                                        printk( "data abort: passed test for hwpte(%08lx) for addr(%08lx), our doing\n", hpte,addr); 
+                                        //printk( "data abort: passed test for hwpte(%08lx) for addr(%08lx), our doing\n", hpte,addr); 
 					refc = update_refcount(tsk,pte,addr,regs);
 					/* let user to execute the faulty instr */
 					unmask_hwpte(refc); // done in update_refcount
@@ -1146,11 +1189,11 @@ do_DataAbort(unsigned long addr, unsigned int fsr, struct pt_regs *regs)
 					return;	/* skip Linux's handling */
 				}
                                 else{
-                                   printk( "data abort: did not pass test for hwpte(%08lx) for addr(%08lx), our doing\n", hpte,addr); 
+                                   //printk( "data abort: did not pass test for hwpte(%08lx) for addr(%08lx), our doing\n", hpte,addr); 
                                 }
 			}
                         else{
-                            printk( "data abort: pte_lookup failed for addr(%08lx)\n",addr);
+                            //printk( "data abort: pte_lookup failed for addr(%08lx)\n",addr);
                         }
 //		}
 	}
@@ -1204,13 +1247,14 @@ do_PrefetchAbort(unsigned long addr, unsigned int ifsr, struct pt_regs *regs)
 //                                (unsigned long) pte, addr, task->pid);
                         
 			if (pte) {                            
-                            refc= refc_lookup(task,pte);
+                            //refc= refc_lookup(task,pte);
+                            refc= refc_lookup(task, pte, addr);
                             printk(  "prefetch abort: reading hwpte addr(%08lx)\n",addr);
 				hpte = readl(hw_pte(pte));
                                 printk(  "prefetch abort: read hwpte(%08lx) for addr(%08lx)\n", hpte,addr);
 				if (hpte && (!(hpte & 0x2))) {
 					/* hw pte has bit set, but invalid. seems planted by us */
-                                        printk( "prefetch abort: passed test for hwpte(%08lx) for addr(%08lx), our doing\n", hpte,addr);
+                                        //printk( "prefetch abort: passed test for hwpte(%08lx) for addr(%08lx), our doing\n", hpte,addr);
 					
 //                                        if (thumb_mode(regs)){
 //                                            printk( "prefetch abort: running in thumb mode, will stop monitoring\n", hpte,addr);
@@ -1226,11 +1270,11 @@ do_PrefetchAbort(unsigned long addr, unsigned int ifsr, struct pt_regs *regs)
 					return;	/* skip Linux's handling */
 				}
                                 else{
-                                   printk( "prefetch abort: did not pass test for hwpte(%08lx) for addr(%08lx), our doing\n", hpte,addr); 
+                                   //printk( "prefetch abort: did not pass test for hwpte(%08lx) for addr(%08lx), our doing\n", hpte,addr); 
                                 }
 			}
                         else{
-                            printk( "prefetch abort: pte_lookup failed for addr(%08lx)\n",addr);
+                            //printk( "prefetch abort: pte_lookup failed for addr(%08lx)\n",addr);
                         }
 //		}
 	}

@@ -23,6 +23,3 @@ source CONFIG
 	cat /proc/<PID>/maps	# check proc fs
 	```
 	+ The numbers or "x" shown up are the reference counts
-
-
-

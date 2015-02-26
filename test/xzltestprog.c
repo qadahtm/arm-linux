@@ -6,18 +6,13 @@
 #include <assert.h>
 #include <stdio.h>
 #include <unistd.h>
-<<<<<<< HEAD
-=======
 #include <stdlib.h>
->>>>>>> 3671507420ef297babacce3050a9550846fe222b
 
 #include <ctype.h>
  
 #ifndef HEXDUMP_COLS
 #define HEXDUMP_COLS 8
 #endif
-<<<<<<< HEAD
-=======
 
 int *temp = NULL;
 
@@ -30,13 +25,20 @@ struct node
 };
 struct node *root = NULL;
 
-#define MAX_ARRAY_LEN 10240
+#define MAX_ARRAY_LEN 1024
 struct linklist {
         int dummy[MAX_ARRAY_LEN];
         struct linklist* next;
 };
 struct linklist* testLinkList1 = NULL;
 struct linklist* testLinkList2 = NULL;
+
+void test_recursion(int n) {
+	int a = 1;
+	int b = 2;
+	if (n > 0)
+		test_recursion(--n);
+}
 
 void insert(int key, struct node *leaf)
 {
@@ -143,7 +145,6 @@ void test_heap() {
         }
         testLinkList2->next->next->next = NULL;
 }
->>>>>>> 3671507420ef297babacce3050a9550846fe222b
  
 void hexdump(unsigned int *mem, unsigned int len)
 {
@@ -173,26 +174,21 @@ void test_mmap()
 		return;
 	}
 
-	printf("mmap p %08x\n", (unsigned long)p);
+	printf("mmap p %08x\n", (unsigned int)p);
 
-<<<<<<< HEAD
-#define SEC 3 
+#define SEC 1
 	for (i = 0; i < 10; i++) {
 		printf("will read in %d sec...\n", SEC);
 		sleep(SEC);
-=======
-#define SEC 1
-	for (i = 0; i < 20; i++) {
-		printf("will read in %d sec...\n", SEC);
-		sleep(SEC);
                 if (i > 4) {
+			printf("Start testing recursion: round %d\n", i);
+			test_recursion(100);
 			printf("temp = %d\n", *temp);
 			//printf("Start traversing heap: round %d\n", i);
                         //traverse_heap();
 			//printf("Start searching binary tree: round %d\n", i);
 			//search_tree();
                 }
->>>>>>> 3671507420ef297babacce3050a9550846fe222b
 		val = *(unsigned long *)(p);
 		printf("read once. %d\n", i);
 	}
@@ -201,13 +197,6 @@ void test_mmap()
 int main()
 {
 	char mesg[] = "HelloWorld";
-<<<<<<< HEAD
-	//sleep(3);
-	test_mmap();
-
-	/*We need time to check process stats*/
-//	sleep(100);
-=======
 
 	//test_heap();
 	//test_binary_tree();
@@ -217,8 +206,7 @@ int main()
 	//free(temp);
 
 	/*We need time to check process stats*/
-	sleep(100);
->>>>>>> 3671507420ef297babacce3050a9550846fe222b
+	sleep(30);
 	//printf("%s\n", mesg);
 //	hexdump((unsigned int *)0x8600, 128);
 	printf("bye!\n");
