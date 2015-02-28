@@ -420,6 +420,7 @@ struct rq {
 	unsigned long nr_load_updates;
 	u64 nr_switches;
 
+        struct cfs_rq mycfs;
 	struct cfs_rq cfs;
 	struct rt_rq rt;
 
@@ -1028,6 +1029,7 @@ struct sched_class {
 extern const struct sched_class stop_sched_class;
 extern const struct sched_class rt_sched_class;
 extern const struct sched_class fair_sched_class;
+extern const struct sched_class mycfs_sched_class;
 extern const struct sched_class idle_sched_class;
 
 
@@ -1064,6 +1066,7 @@ extern void update_max_interval(void);
 extern int update_runtime(struct notifier_block *nfb, unsigned long action, void *hcpu);
 extern void init_sched_rt_class(void);
 extern void init_sched_fair_class(void);
+extern void init_sched_mycfs_class(void);
 
 extern void resched_task(struct task_struct *p);
 extern void resched_cpu(int cpu);
