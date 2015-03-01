@@ -14,8 +14,9 @@
 #define __ASM_ARM_UNISTD_H
 
 #include <uapi/asm/unistd.h>
-
-#define __NR_syscalls  (380)
+/*tqadah ece695 prog3 - original = 380 , add one sys call had to bump up by 4, 
+ * why? padding?*/
+#define __NR_syscalls  (384) 
 #define __ARM_NR_cmpxchg		(__ARM_NR_BASE+0x00fff0)
 
 #define __ARCH_WANT_STAT64

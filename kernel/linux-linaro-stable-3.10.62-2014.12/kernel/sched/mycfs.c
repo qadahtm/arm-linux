@@ -1,13 +1,18 @@
 #include "sched.h"
-
+#include <linux/syscalls.h>
+#include <linux/printk.h>
 /*
  * mycfs-task scheduling class.
  *
  * (NOTE: these are not related to SCHED_IDLE tasks which are
  *  handled in sched/fair.c)
  */
+SYSCALL_DEFINE2(sched_setlimit,pid_t, pid, int, limit){
+    printk(KERN_EMERG "for pid(%d) , limit is %d\n",(int) pid, limit);
+    return 0;
+}
 
-
+//EXPORT_SYMBOL(sys_sched_setlimit);
 /*
  * Idle tasks are unconditionally rescheduled:
  */
@@ -26,6 +31,7 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 static void
 enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
+    printk(KERN_EMERG "enqueue task %s\n",p->comm);
 }
 
 /*
