@@ -19,19 +19,33 @@ SYSCALL_DEFINE2(sched_setlimit,pid_t, pid, int, limit){
 static void check_preempt_curr_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
 //	resched_task(rq->mycfs);
+    //resched_task(rq->idle);
+    
+    idle_sched_class.check_preempt_curr(rq,p,flags);
 }
 
 static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 {
-	struct task_struct *p;
-        p = NULL;
-	return p;
+	struct task_struct *p;  
+        
+        
+//        if (strncmp(p->comm,"p3tmycfs", TASK_COMM_LEN) == 0){
+        //printk(KERN_EMERG "delegate picking to to idle %s\n",p->comm);
+        
+//        }
+        //p = NULL;
+	//return p;
+        //return rq->idle;
+        return idle_sched_class.pick_next_task(rq);
 }
 
 static void
 enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
-    printk(KERN_EMERG "enqueue task %s\n",p->comm);
+//    if (strncmp(p->comm,"p3tmycfs", TASK_COMM_LEN) == 0){
+        printk(KERN_EMERG "enqueue task %s\n",p->comm);  
+//    }
+    inc_nr_running(rq);
 }
 
 /*
@@ -41,6 +55,10 @@ enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 static void
 dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
+//    if (strncmp(p->comm,"p3tmycfs", TASK_COMM_LEN) == 0){
+        printk(KERN_EMERG "dequeue task %s\n",p->comm);
+//    }
+    dec_nr_running(rq);
 }
 
 static void put_prev_task_mycfs(struct rq *rq, struct task_struct *prev)
@@ -152,6 +170,11 @@ static void task_waking_mycfs(struct task_struct *p)
 {
 }
 #endif
+
+void init_mycfs_rq(struct mycfs_rq *mycfs_rq){
+    
+}
+
 /*
  * Simple, special scheduling class for the per-CPU mycfs tasks:
  */

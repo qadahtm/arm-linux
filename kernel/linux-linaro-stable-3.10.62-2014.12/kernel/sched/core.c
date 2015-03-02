@@ -3854,6 +3854,9 @@ extern struct cpumask hmp_slow_cpu_mask;
 static void
 __setscheduler(struct rq *rq, struct task_struct *p, int policy, int prio)
 {
+//    if (strncmp(p->comm,"p3tmycfs",TASK_COMM_LEN) == 0){
+        printk(KERN_EMERG "__setscheduler : setting policy = %d \n",policy);
+//    }
 	p->policy = policy;
 	p->rt_priority = prio;
 	p->normal_prio = normal_prio(p);
@@ -3900,6 +3903,8 @@ static int __sched_setscheduler(struct task_struct *p, int policy,
 	struct rq *rq;
 	int reset_on_fork;
 
+        printk(KERN_EMERG "__sched_setscheduler : setting policy = %d \n",policy);
+        
 	/* may grab non-irq protected spin_locks */
 	BUG_ON(in_interrupt());
 recheck:
@@ -3913,10 +3918,12 @@ recheck:
 
 		if (policy != SCHED_FIFO && policy != SCHED_RR &&
 				policy != SCHED_NORMAL && policy != SCHED_BATCH &&
+                                policy != SCHED_MYCFS && /*tqadah: adding SCHED_MYCFS*/
 				policy != SCHED_IDLE)
 			return -EINVAL;
 	}
 
+//        printk(KERN_EMERG "__sched_setscheduler : setting policy = %d, here 1\n",policy);
 	/*
 	 * Valid priorities for SCHED_FIFO and SCHED_RR are
 	 * 1..MAX_USER_RT_PRIO-1, valid priority for SCHED_NORMAL,
@@ -3924,11 +3931,17 @@ recheck:
 	 */
 	if (param->sched_priority < 0 ||
 	    (p->mm && param->sched_priority > MAX_USER_RT_PRIO-1) ||
-	    (!p->mm && param->sched_priority > MAX_RT_PRIO-1))
-		return -EINVAL;
-	if (rt_policy(policy) != (param->sched_priority != 0))
-		return -EINVAL;
-
+	    (!p->mm && param->sched_priority > MAX_RT_PRIO-1)){
+//            printk(KERN_EMERG "__sched_setscheduler : setting policy = %d, here 1.1\n",policy);
+        	return -EINVAL;
+        }
+	
+	if (rt_policy(policy) != (param->sched_priority != 0)){
+//            printk(KERN_EMERG "__sched_setscheduler : setting policy = %d, here 1.2\n",policy);
+        	return -EINVAL;
+        }
+	
+//printk(KERN_EMERG "__sched_setscheduler : setting policy = %d, here 2\n",policy);
 	/*
 	 * Allow unprivileged RT tasks to decrease priority:
 	 */
@@ -3946,7 +3959,7 @@ recheck:
 			    param->sched_priority > rlim_rtprio)
 				return -EPERM;
 		}
-
+//printk(KERN_EMERG "__sched_setscheduler : setting policy = %d, here 3\n",policy);
 		/*
 		 * Treat SCHED_IDLE as nice 20. Only allow a switch to
 		 * SCHED_NORMAL if the RLIMIT_NICE would normally permit it.
@@ -3955,22 +3968,22 @@ recheck:
 			if (!can_nice(p, TASK_NICE(p)))
 				return -EPERM;
 		}
-
+//printk(KERN_EMERG "__sched_setscheduler : setting policy = %d, here 4\n",policy);
 		/* can't change other user's priorities */
 		if (!check_same_owner(p))
 			return -EPERM;
-
+//printk(KERN_EMERG "__sched_setscheduler : setting policy = %d, here 5\n",policy);
 		/* Normal users shall not reset the sched_reset_on_fork flag */
 		if (p->sched_reset_on_fork && !reset_on_fork)
 			return -EPERM;
 	}
-
+//printk(KERN_EMERG "__sched_setscheduler : setting policy = %d, here 6\n",policy);
 	if (user) {
 		retval = security_task_setscheduler(p);
 		if (retval)
 			return retval;
 	}
-
+//printk(KERN_EMERG "__sched_setscheduler : setting policy = %d, here 7\n",policy);
 	/*
 	 * make sure no PI-waiters arrive (or leave) while we are
 	 * changing the priority of the task:
@@ -4018,6 +4031,8 @@ recheck:
 		task_rq_unlock(rq, p, &flags);
 		goto recheck;
 	}
+        
+        printk(KERN_EMERG "__sched_setscheduler : setting policy = %d, changing policy\n",policy);
 	on_rq = p->on_rq;
 	running = task_current(rq, p);
 	if (on_rq)
@@ -4055,6 +4070,7 @@ recheck:
 int sched_setscheduler(struct task_struct *p, int policy,
 		       const struct sched_param *param)
 {
+    printk(KERN_EMERG "sched_setscheduler : setting policy = %d \n",policy);
 	return __sched_setscheduler(p, policy, param, true);
 }
 EXPORT_SYMBOL_GPL(sched_setscheduler);
@@ -4604,6 +4620,7 @@ SYSCALL_DEFINE1(sched_get_priority_max, int, policy)
 		break;
 	case SCHED_NORMAL:
 	case SCHED_BATCH:
+        case SCHED_MYCFS: /*tqadah: adding MYCFS */
 	case SCHED_IDLE:
 		ret = 0;
 		break;
@@ -4629,6 +4646,7 @@ SYSCALL_DEFINE1(sched_get_priority_min, int, policy)
 		break;
 	case SCHED_NORMAL:
 	case SCHED_BATCH:
+        case SCHED_MYCFS: /*tqadah: handling MYCFS*/
 	case SCHED_IDLE:
 		ret = 0;
 	}
@@ -7021,6 +7039,7 @@ void __init sched_init(void)
 		rq->nr_running = 0;
 		rq->calc_load_active = 0;
 		rq->calc_load_update = jiffies + LOAD_FREQ;
+                init_mycfs_rq(&rq->mycfs);
 		init_cfs_rq(&rq->cfs);
 		init_rt_rq(&rq->rt, rq);
 #ifdef CONFIG_FAIR_GROUP_SCHED
