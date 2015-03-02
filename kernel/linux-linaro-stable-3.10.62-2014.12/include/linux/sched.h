@@ -17,6 +17,7 @@ struct sched_param {
 #include <linux/timex.h>
 #include <linux/jiffies.h>
 #include <linux/rbtree.h>
+#include <linux/myrbtree.h> // Yiyang: customized red-black tree
 #include <linux/thread_info.h>
 #include <linux/cpumask.h>
 #include <linux/errno.h>
@@ -1018,6 +1019,43 @@ struct sched_entity {
 	struct cfs_rq		*cfs_rq;
 	/* rq "owned" by this entity/group: */
 	struct cfs_rq		*my_q;
+#endif
+
+/*
+ * Load-tracking only depends on SMP, FAIR_GROUP_SCHED dependency below may be
+ * removed when useful for applications beyond shares distribution (e.g.
+ * load-balance).
+ */
+#if defined(CONFIG_SMP) && defined(CONFIG_FAIR_GROUP_SCHED)
+	/* Per-entity load-tracking */
+	struct sched_avg	avg;
+#endif
+};
+
+/* Yiyang: customized sched_entity for mycfs */
+struct my_sched_entity {
+	struct load_weight	load;		/* for load-balancing */
+	struct my_rb_node	run_node;
+	struct list_head	group_node;
+	unsigned int		on_rq;
+
+	u64			exec_start;
+	u64			sum_exec_runtime;
+	u64			vruntime;
+	u64			prev_sum_exec_runtime;
+
+	u64			nr_migrations;
+
+#ifdef CONFIG_SCHEDSTATS
+	struct sched_statistics statistics;
+#endif
+
+#ifdef CONFIG_FAIR_GROUP_SCHED
+	struct my_sched_entity	*parent;
+	/* rq on which this entity is (to be) queued: */
+	struct mycfs_rq		*cfs_rq;
+	/* rq "owned" by this entity/group: */
+	struct mycfs_rq		*my_q;
 #endif
 
 /*
