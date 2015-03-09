@@ -1,0 +1,26 @@
+#===================== Config for ECE 695 ========================#
+# add the pre-compiled qemu to your path
+export PATH=/home/dynamo/a/xzl/ece695/pub/qemu-2.0.0/install/bin:/home/dynamo/a/xzl/ece695/pub/linaro-arm-linux-gnueabi-2012.02/bin:/home/dynamo/a/xzl/gentoo/usr/bin:/home/dynamo/a/xzl/gentoo/bin:/home/dynamo/a/xzl/ece695/pub/qemu-2.0.0/install/bin:/opt/oracle/11.2.0/bin:/usr/lib64/qt-3.3/bin:/usr/NX/bin:/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/usr/opt/bin:/usr/site/ece/bin:.
+
+# since the ECN's Linux distro (RHEL) is years old, I had to build qemu depending on a non-root gentoo
+unset LD_LIBRARY_PATH
+unset PKG_CONFIG_PATH
+export EPREFIX="/home/dynamo/a/xzl/gentoo"
+export PATH="/home/dynamo/a/xzl/gentoo/usr/bin:/home/dynamo/a/xzl/gentoo/bin":/home/dynamo/a/xzl/ece695/pub/linaro-arm-linux-gnueabi-2012.02/bin:/home/dynamo/a/xzl/gentoo/usr/bin:/home/dynamo/a/xzl/gentoo/bin:/home/dynamo/a/xzl/ece695/pub/qemu-2.0.0/install/bin:/opt/oracle/11.2.0/bin:/usr/lib64/qt-3.3/bin:/usr/NX/bin:/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/usr/opt/bin:/usr/site/ece/bin:.
+
+# Some libraries needed by qemu are missing from some ECN servers. Take mine!
+export LD_LIBRARY_PATH=/home/dynamo/a/xzl/ece695/pub/lib
+
+# add the ARM cross toolchain to your path
+# for userspace and linux 
+export PATH=/home/dynamo/a/xzl/ece695/pub/linaro-arm-linux-gnueabi-2012.02/bin:/home/dynamo/a/xzl/ece695/pub/linaro-arm-linux-gnueabi-2012.02/bin:/home/dynamo/a/xzl/gentoo/usr/bin:/home/dynamo/a/xzl/gentoo/bin:/home/dynamo/a/xzl/ece695/pub/qemu-2.0.0/install/bin:/opt/oracle/11.2.0/bin:/usr/lib64/qt-3.3/bin:/usr/NX/bin:/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/usr/opt/bin:/usr/site/ece/bin:.
+# for xv6
+export PATH=/home/dynamo/a/xzl/ece695/pub/arm-2012.03/bin:/home/dynamo/a/xzl/ece695/pub/linaro-arm-linux-gnueabi-2012.02/bin:/home/dynamo/a/xzl/gentoo/usr/bin:/home/dynamo/a/xzl/gentoo/bin:/home/dynamo/a/xzl/ece695/pub/qemu-2.0.0/install/bin:/opt/oracle/11.2.0/bin:/usr/lib64/qt-3.3/bin:/usr/NX/bin:/usr/local/bin:/bin:/usr/bin:/usr/local/sbin:/usr/sbin:/sbin:/usr/opt/bin:/usr/site/ece/bin:.
+
+# Setting up the cross build env vars. 
+# We are building for ARM. 
+export ARCH=arm
+export CROSS_COMPILE=arm-linux-gnueabi-
+export MYKERNEL_PATH=/home/min/a/tqadah/ECE695-OSDI/arm-linux/kernel/linux-linaro-stable-3.10.62-2014.12/tmp/arch/arm/boot/zImage
+export MYINITRD_PATH=/home/min/a/tqadah/ECE695-OSDI/arm-linux/kernel/linux-linaro-stable-3.10.62-2014.12/tmp/my-initrd
+#===================== Config for ECE 695 ========================#

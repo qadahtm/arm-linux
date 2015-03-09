@@ -45,7 +45,7 @@
 
 #include "sched.h"
 
-
+//#define CONFIG_SMP
 /*
  * Targeted preemption latency for CPU-bound tasks:
  * (default: 6ms * (1 + ilog(ncpus)), units: nanoseconds)

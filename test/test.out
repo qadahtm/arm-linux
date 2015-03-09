@@ -1,0 +1,35 @@
+sleeping for 3 secs
+sleeping for 1 sec
+read again: faulty pc 000086cc, instr e7f001f2
+patch is done
+hpte was 9fff9e7c. going to enable it.
+xzltestprog (1421): undefined instruction: pc=000086cc
+Code: e3a00001 ebffff5d e51b3008 e5933000 (e7f001f2) 
+oh this undefinstr is planted by us. 
+read: faulty pc 000086cc, instr e7f001f2
+restore instr ok -- user good to go
+read again: faulty pc 000086cc, instr e50b3014
+hpte was 9fff9e7f, going to disable it.
+sleeping for 1 sec
+mmap p 40000000
+will read in 1 sec...
+read once. 0
+will read in 1 sec...
+read once. 1
+will read in 1 sec...
+read once. 2
+will read in 1 sec...
+read once. 3
+will read in 1 sec...
+read once. 4
+will read in 1 sec...
+read once. 5
+will read in 1 sec...
+read once. 6
+will read in 1 sec...
+read once. 7
+will read in 1 sec...
+read once. 8
+will read in 1 sec...
+read once. 9
+bye!

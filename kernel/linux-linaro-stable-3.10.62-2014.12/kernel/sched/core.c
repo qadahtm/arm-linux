@@ -89,6 +89,7 @@
 #define CREATE_TRACE_POINTS
 #include <trace/events/sched.h>
 
+//#define CONFIG_SMP
 void start_bandwidth_timer(struct hrtimer *period_timer, ktime_t period)
 {
 	unsigned long delta;
@@ -3873,6 +3874,7 @@ __setscheduler(struct rq *rq, struct task_struct *p, int policy, int prio)
 			}
 #endif
 	}
+        else if (policy == SCHED_MYCFS) p->sched_class = &mycfs_sched_class;
 	else
 		p->sched_class = &fair_sched_class;
 	set_load_weight(p);
