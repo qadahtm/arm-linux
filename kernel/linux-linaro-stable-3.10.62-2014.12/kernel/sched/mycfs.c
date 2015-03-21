@@ -15,7 +15,7 @@ SYSCALL_DEFINE2(sched_setlimit,pid_t, pid, int, limit){
 #define SELIST_SIZE 1000
 
 static struct sched_entity * selist[SELIST_SIZE];
-static int head=0;
+static int head=-1;
 static int tail=0;
 
 static inline struct task_struct *task_of(struct sched_entity *se)
@@ -43,48 +43,147 @@ static void check_preempt_curr_mycfs(struct rq *rq, struct task_struct *p, int f
     
     if (se == pse) return;
     
-    resched_task(curr);
+    resched_task_mycfs(curr);
 }
 
 static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 {
-	struct task_struct *p;  
+	struct task_struct *p; 
+        struct task_struct *curr_task = rq->curr;
         int i=0;
 
-        if (rq->curr == p) {
-            printk(KERN_EMERG "picked task : %s at i = %d, pid= %d is already in rq of cpu(%d)\n"
-                    ,p->comm, i, (int) p->pid,cpu_of(rq));            
+//        if (rq->curr == p) {
+//            printk(KERN_EMERG "picked task : %s at i = %d, pid= %d is already in rq of cpu(%d)\n"
+//                    ,p->comm, i, (int) p->pid,cpu_of(rq));            
+//            return NULL;
+//        }
+        
+        if (tail >= 0 && tail < SELIST_SIZE){
+        
+            if (head == -1){
+                // first time pick the first task in the list
+                
+                for (i=0; i< SELIST_SIZE; i++){
+                    // returning the first task in the list
+                    if (selist[i] != 0) {
+                        head = i;
+                        p = task_of(selist[i]);
+                        printk(KERN_EMERG "picked task (first) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
+                            ,p->comm, i, (int) p->pid, cpu_of(rq),head);
+                        return p;
+                    }            
+                }
+                
+            }
+            else{
+                // pick other tasks. 
+                for (i=(head+1); i< SELIST_SIZE; i++){
+                    // returning the first task in the list after head
+                    if (selist[i] != 0) {
+                        head = i;
+                        p = task_of(selist[i]);
+                        printk(KERN_EMERG "picked task (head-start-other) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
+                            ,p->comm, i, (int) p->pid, cpu_of(rq),head);
+                        return p;
+                    }            
+                }
+                
+                for (i=0; i< head; i++){
+                    // returning the first task in the list after head
+                    if (selist[i] != 0) {
+                        head = i;
+                        p = task_of(selist[i]);
+                        printk(KERN_EMERG "picked task (head-start-other) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
+                            ,p->comm, i, (int) p->pid, cpu_of(rq),head);
+                        return p;
+                    }            
+                }
+                
+                
+                // no other tasks, return same task if valid
+                if (selist[head] != 0){
+                    p = task_of(selist[head]);
+                    printk(KERN_EMERG "picked task (no-other) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
+                            ,p->comm, i, (int) p->pid, cpu_of(rq),head);
+                    return p;
+                }
+                
+                
+            }
             return NULL;
+        
+        }
+        else{
+            printk(KERN_EMERG "tail at(%d) is invalid\n");
+            BUG();
         }
         
         
-        // linear search for an a task
-        for (i=0; i< SELIST_SIZE; i++){
-            if (selist[i] != 0) break; 
-        }
+        // linear search for a task for current running 
+//        for (i=0; i< SELIST_SIZE; i++){
+//            // returning the first task in the list
+//            if (selist[i] != 0 && selist[i] == &(curr_task->se)) {
+//                head = i;
+//                break;
+//            }            
+//        }
         
-        if (i < SELIST_SIZE) {
-            p = task_of(selist[i]);
-#ifdef CONFIG_SMP
-	printk(KERN_EMERG "selected task : %s at i = %d, pid= %d is on cpu(%d) and picking for rq of cpu(%d)\n"
-                    ,p->comm, i, (int) p->pid,p->on_cpu,cpu_of(rq));
-#endif
-            printk(KERN_EMERG "picked task : %s at i = %d, pid= %d, cpu = %d \n"
-                    ,p->comm, i, (int) p->pid, cpu_of(rq));
-            return p;
-        }
-        else {
-//            printk(KERN_EMERG "no task to pick delegate to idle scheduler\n");
-            //return idle_sched_class.pick_next_task(rq);
-            return NULL;
-        }
+//        if (i == (SELIST_SIZE-1)) {
+//            printk(KERN_EMERG "running task is not in rq\n");
+//            BUG();
+//        }
+//        
+//        if (head < SELIST_SIZE) {
+//            // current running task should be at i
+//            //look for next 
+//            i++;
+//            for (; i< SELIST_SIZE; i++){
+//                // returning the first task in the list
+//                if (selist[i] != 0) {
+//                    p = task_of(selist[i]);
+//#ifdef CONFIG_SMP
+//                    printk(KERN_EMERG "selected task : %s at i = %d, pid= %d is on cpu(%d) and picking for rq of cpu(%d)\n"
+//                                ,p->comm, i, (int) p->pid,p->on_cpu ,cpu_of(rq));
+//#endif
+//                    printk(KERN_EMERG "picked task : %s at i = %d, pid= %d, cpu = %d \n"
+//                            ,p->comm, i, (int) p->pid, cpu_of(rq));
+//                    head = i;
+//                    return p;
+//                }           
+//            }
+//            
+//            // run a task from a lower index
+//            i = 0;
+//            for (; i< head; i++){
+//                if (selist[i] != 0) {
+//                    p = task_of(selist[i]);
+//#ifdef CONFIG_SMP
+//                    printk(KERN_EMERG "selected task : %s at i = %d, pid= %d is on cpu(%d) and picking for rq of cpu(%d)\n"
+//                                ,p->comm, i, (int) p->pid,p->on_cpu ,cpu_of(rq));
+//#endif
+//                    printk(KERN_EMERG "picked task : %s at i = %d, pid= %d, cpu = %d \n"
+//                            ,p->comm, i, (int) p->pid, cpu_of(rq));
+//                    head = i;
+//                    return p;
+//                }
+//            }
+//            
+//            
+//           return NULL; 
+//            
+//        }
+//        else {
+////            printk(KERN_EMERG "no task to pick delegate to idle scheduler\n");
+//            //return idle_sched_class.pick_next_task(rq);
+//            return NULL;
+//        }
 }
 
 static void
 enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
     int i = 0;
-    printk(KERN_EMERG "enqueue first task at 0 %s\n",p->comm);
+    printk(KERN_EMERG "enqueue task at tail = %d %s\n",tail,p->comm);
     selist[tail] = &p->se;
     tail++;
     inc_nr_running(rq);
@@ -128,11 +227,15 @@ static void put_prev_task_mycfs(struct rq *rq, struct task_struct *prev)
 
 static void task_tick_mycfs(struct rq *rq, struct task_struct *curr, int queued)
 {
-    //
+    printk(KERN_EMERG "task tick for curr = %s, rq->curr = %s \n",curr->comm,rq->curr->comm);
+    // try to preempt tasks on task ticks
+    if (rq->curr == curr)
+        resched_task_mycfs(curr);
+    else resched_task_mycfs(rq->curr);
 }
 
 static void set_curr_task_mycfs(struct rq *rq)
-{
+{  
 }
 
 static void switched_to_mycfs(struct rq *rq, struct task_struct *p)
