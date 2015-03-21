@@ -1,6 +1,9 @@
 #include "sched.h"
 #include <linux/syscalls.h>
 #include <linux/printk.h>
+
+#include <trace/events/sched.h>
+
 /*
  * mycfs-task scheduling class.
  *
@@ -11,11 +14,11 @@ SYSCALL_DEFINE2(sched_setlimit,pid_t, pid, int, limit){
     printk(KERN_EMERG "for pid(%d) , limit is %d\n",(int) pid, limit);
     return 0;
 }
-#define CONFIG_SMP
+//#define CONFIG_SMP
 #define SELIST_SIZE 1000
 
 static struct sched_entity * selist[SELIST_SIZE];
-static int head=0;
+static int head=-1;
 static int tail=0;
 
 static inline struct task_struct *task_of(struct sched_entity *se)
@@ -26,6 +29,80 @@ static inline struct task_struct *task_of(struct sched_entity *se)
 static inline struct rq *rq_of(struct cfs_rq *cfs_rq)
 {
 	return container_of(cfs_rq, struct rq, cfs);
+}
+
+static inline u64 max_vruntime(u64 max_vruntime, u64 vruntime)
+{
+	s64 delta = (s64)(vruntime - max_vruntime);
+	if (delta > 0)
+		max_vruntime = vruntime;
+
+	return max_vruntime;
+}
+
+static inline u64 min_vruntime(u64 min_vruntime, u64 vruntime)
+{
+	s64 delta = (s64)(vruntime - min_vruntime);
+	if (delta < 0)
+		min_vruntime = vruntime;
+
+	return min_vruntime;
+}
+
+static inline int entity_before(struct sched_entity *a,
+				struct sched_entity *b)
+{
+	return (s64)(a->vruntime - b->vruntime) < 0;
+}
+
+
+static void update_stats(struct rq *rq, struct task_struct *p)
+{
+    // update task statistics
+    struct mycfs_rq * mycfs = &(rq->mycfs);
+    struct sched_entity *curr_se = &(p->se); 
+//    struct sched_entity *curr_se = &(mycfs->curr); 
+//    struct task_struct *curr = task_of(curr_se);
+    u64 now = rq->clock_task;
+    unsigned long delta_exec;
+    //unsigned long delta_exec_weighted;
+    u64 vruntime = mycfs->min_vruntime;
+
+    delta_exec = (unsigned long) (now - curr_se->exec_start);
+
+    if (!delta_exec)
+        return;
+//    printk(KERN_EMERG "update_stats for curr = %s, now = %llu ,curr_se->exec_start = %llu, delta = %lu\n",
+//            curr->comm, now, curr_se->exec_start, delta_exec);
+    
+    schedstat_set(curr_se->statistics.exec_max,
+            max((u64) delta_exec, curr_se->statistics.exec_max));
+
+    schedstat_add(mycfs, exec_clock, delta_exec);
+    //delta_exec_weighted = calc_delta_fair(delta_exec, curr);
+    curr_se->sum_exec_runtime += delta_exec;
+    curr_se->vruntime += delta_exec;
+
+
+    if (mycfs->curr)
+        vruntime = mycfs->curr->vruntime;
+
+    /* ensure we never gain time by being placed backwards. */
+    mycfs->min_vruntime = max_vruntime(mycfs->min_vruntime, vruntime);
+
+    curr_se->exec_start = now;
+    
+//    if (entity_is_task(curr)) {
+//            struct task_struct *curtask = task_of(curr_se);
+    
+            trace_sched_stat_runtime(p, delta_exec, curr_se->vruntime);
+//            trace_sched_stat_runtime(curr, delta_exec, curr_se->vruntime);
+//            cpuacct_charge(curtask, delta_exec);
+//            account_group_exec_runtime(curtask, delta_exec);
+//    }
+    
+//    printk(KERN_EMERG "update_stats for curr = %s, rq->curr = %s, mycfs->exec_clock = %llu, rq->clock_task = %llu , curr_se->sum_exec_time = %llu\n",
+//            curr->comm, rq->curr->comm, mycfs->exec_clock, rq->clock_task, curr_se->sum_exec_runtime);
 }
 
 static void resched_task_mycfs(struct task_struct * p){
@@ -43,48 +120,89 @@ static void check_preempt_curr_mycfs(struct rq *rq, struct task_struct *p, int f
     
     if (se == pse) return;
     
-    resched_task(curr);
+    
+    update_stats(rq,curr);
+    resched_task_mycfs(curr);
 }
 
 static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 {
-	struct task_struct *p;  
+	struct task_struct *p; 
         int i=0;
 
-        if (rq->curr == p) {
-            printk(KERN_EMERG "picked task : %s at i = %d, pid= %d is already in rq of cpu(%d)\n"
-                    ,p->comm, i, (int) p->pid,cpu_of(rq));            
+//        if (rq->curr == p) {
+//            printk(KERN_EMERG "picked task : %s at i = %d, pid= %d is already in rq of cpu(%d)\n"
+//                    ,p->comm, i, (int) p->pid,cpu_of(rq));            
+//            return NULL;
+//        }
+        
+        if (tail >= 0 && tail < SELIST_SIZE){
+        
+            if (head == -1){
+                // first time pick the first task in the list
+                
+                for (i=0; i< SELIST_SIZE; i++){
+                    // returning the first task in the list
+                    if (selist[i] != 0) {
+                        head = i;
+                        p = task_of(selist[i]);
+//                        printk(KERN_EMERG "picked task (first) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
+//                            ,p->comm, i, (int) p->pid, cpu_of(rq),head);
+                        return p;
+                    }            
+                }
+                
+            }
+            else{
+                // pick other tasks. 
+                for (i=(head+1); i< SELIST_SIZE; i++){
+                    // returning the first task in the list after head
+                    if (selist[i] != 0) {
+                        head = i;
+                        p = task_of(selist[i]);
+//                        printk(KERN_EMERG "picked task (head-start-other) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
+//                            ,p->comm, i, (int) p->pid, cpu_of(rq),head);
+                        return p;
+                    }            
+                }
+                
+                for (i=0; i< head; i++){
+                    // returning the first task in the list after head
+                    if (selist[i] != 0) {
+                        head = i;
+                        p = task_of(selist[i]);
+//                        printk(KERN_EMERG "picked task (head-start-other) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
+//                            ,p->comm, i, (int) p->pid, cpu_of(rq),head);
+                        return p;
+                    }            
+                }
+                
+                
+                // no other tasks, return same task if valid
+                if (selist[head] != 0){
+                    p = task_of(selist[head]);
+//                    printk(KERN_EMERG "picked task (no-other) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
+//                            ,p->comm, i, (int) p->pid, cpu_of(rq),head);
+                    return p;
+                }
+                
+                
+            }
             return NULL;
+        
+        }
+        else{
+//            printk(KERN_EMERG "tail at(%d) is invalid\n");
+            BUG();
         }
         
-        
-        // linear search for an a task
-        for (i=0; i< SELIST_SIZE; i++){
-            if (selist[i] != 0) break; 
-        }
-        
-        if (i < SELIST_SIZE) {
-            p = task_of(selist[i]);
-#ifdef CONFIG_SMP
-	printk(KERN_EMERG "selected task : %s at i = %d, pid= %d is on cpu(%d) and picking for rq of cpu(%d)\n"
-                    ,p->comm, i, (int) p->pid,p->on_cpu,cpu_of(rq));
-#endif
-            printk(KERN_EMERG "picked task : %s at i = %d, pid= %d, cpu = %d \n"
-                    ,p->comm, i, (int) p->pid, cpu_of(rq));
-            return p;
-        }
-        else {
-//            printk(KERN_EMERG "no task to pick delegate to idle scheduler\n");
-            //return idle_sched_class.pick_next_task(rq);
-            return NULL;
-        }
 }
 
 static void
 enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
-    int i = 0;
-    printk(KERN_EMERG "enqueue first task at 0 %s\n",p->comm);
+    update_stats(rq,p);
+//    printk(KERN_EMERG "enqueue task at tail = %d %s\n",tail,p->comm);
     selist[tail] = &p->se;
     tail++;
     inc_nr_running(rq);
@@ -98,8 +216,8 @@ static void
 dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
     int i =0;
-    
-    printk(KERN_EMERG "dequeue task %s\n",p->comm);
+    update_stats(rq,p);
+//    printk(KERN_EMERG "dequeue task %s\n",p->comm);
 
     for (i=0; i < tail; i++){
         if (selist[i] == &p->se) break;
@@ -107,18 +225,18 @@ dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
     
     if (i < tail){
         //found
-        printk(KERN_EMERG "task %s found in running-queue at i=%d\n",p->comm,i);
+//        printk(KERN_EMERG "task %s found in running-queue at i=%d\n",p->comm,i);
         for (; i < tail; i++){
             selist[i] = selist[i+1];
         }
         selist[i] = 0;
         tail--;
-        printk(KERN_EMERG "tail was (%d), now is (%d)\n",(tail+1),tail);
+//        printk(KERN_EMERG "tail was (%d), now is (%d)\n",(tail+1),tail);
         
     }
-    else{
-        printk(KERN_EMERG "task %s does not exist in running-queue\n",p->comm);
-    }
+//    else{
+//        printk(KERN_EMERG "task %s does not exist in running-queue\n",p->comm);
+//    }
     dec_nr_running(rq);
 }
 
@@ -126,13 +244,20 @@ static void put_prev_task_mycfs(struct rq *rq, struct task_struct *prev)
 {
 }
 
+
 static void task_tick_mycfs(struct rq *rq, struct task_struct *curr, int queued)
 {
-    //
+    
+    update_stats(rq,curr);
+    
+    // preempt tasks on task ticks
+    if (rq->curr == curr)
+        resched_task_mycfs(curr);
+    else resched_task_mycfs(rq->curr);
 }
 
 static void set_curr_task_mycfs(struct rq *rq)
-{
+{  
 }
 
 static void switched_to_mycfs(struct rq *rq, struct task_struct *p)
@@ -140,12 +265,12 @@ static void switched_to_mycfs(struct rq *rq, struct task_struct *p)
 	if (!p->se.on_rq)
 		return;
 	if (rq->curr == p){
-            printk(KERN_EMERG "handling task %s , reschedule task\n",p->comm);
+//            printk(KERN_EMERG "handling task %s , reschedule task\n",p->comm);
             resched_task(rq->curr);
         }
 	else
         {
-            printk(KERN_EMERG "going to check preempt task %s\n",p->comm);
+//            printk(KERN_EMERG "going to check preempt task %s\n",p->comm);
             check_preempt_curr_mycfs(rq, p, 0);
         }
 }

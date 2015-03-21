@@ -3856,7 +3856,7 @@ static void
 __setscheduler(struct rq *rq, struct task_struct *p, int policy, int prio)
 {
 //    if (strncmp(p->comm,"p3tmycfs",TASK_COMM_LEN) == 0){
-        printk(KERN_EMERG "__setscheduler : setting policy = %d \n",policy);
+//        printk(KERN_EMERG "__setscheduler : setting policy = %d \n",policy);
 //    }
 	p->policy = policy;
 	p->rt_priority = prio;
@@ -3905,7 +3905,7 @@ static int __sched_setscheduler(struct task_struct *p, int policy,
 	struct rq *rq;
 	int reset_on_fork;
 
-        printk(KERN_EMERG "__sched_setscheduler : setting policy = %d \n",policy);
+//        printk(KERN_EMERG "__sched_setscheduler : setting policy = %d \n",policy);
         
 	/* may grab non-irq protected spin_locks */
 	BUG_ON(in_interrupt());
@@ -4034,7 +4034,7 @@ recheck:
 		goto recheck;
 	}
         
-        printk(KERN_EMERG "__sched_setscheduler : setting policy = %d, changing policy\n",policy);
+//        printk(KERN_EMERG "__sched_setscheduler : setting policy = %d, changing policy\n",policy);
 	on_rq = p->on_rq;
 	running = task_current(rq, p);
 	if (on_rq)
@@ -4072,7 +4072,7 @@ recheck:
 int sched_setscheduler(struct task_struct *p, int policy,
 		       const struct sched_param *param)
 {
-    printk(KERN_EMERG "sched_setscheduler : setting policy = %d \n",policy);
+//    printk(KERN_EMERG "sched_setscheduler : setting policy = %d \n",policy);
 	return __sched_setscheduler(p, policy, param, true);
 }
 EXPORT_SYMBOL_GPL(sched_setscheduler);
