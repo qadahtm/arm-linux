@@ -9,7 +9,7 @@
 #define MYRBTREE_H
 
 typedef struct red_blk_node {
-	void* key;
+	void* key; // the key should be casted to struct sched_entity*
 	struct red_blk_node* left_child;
 	struct red_blk_node* right_child;
 	struct red_blk_node* parent;

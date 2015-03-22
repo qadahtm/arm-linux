@@ -21,11 +21,14 @@ SYSCALL_DEFINE2(sched_setlimit,pid_t, pid, int, limit){
     return 0;
 }
 //#define CONFIG_SMP
-#define SELIST_SIZE 1000
 
+#define SELIST_SIZE 1000
 static struct sched_entity * selist[SELIST_SIZE];
 static int head=-1;
 static int tail=0;
+
+static red_blk_tree* rb_tree = NULL; //red-black tree for mycfs
+
 
 static inline struct task_struct *task_of(struct sched_entity *se)
 {
@@ -389,15 +392,23 @@ int U64Comp(const void* a, const void* b) {
 	return(0);
 }
 
+int vruntimeCompare(const void* a, const void* b) {
+	if ( ((struct sched_entity*)(a))->vruntime > ((struct sched_entity*)(b))->vruntime )
+		return 1;
+	if ( ((struct sched_entity*)(a))->vruntime > ((struct sched_entity*)(b))->vruntime )
+		return -1;
+	return 0;
+}
+
 void U64Print(const void* a) {
 	printk("%llu",*(unsigned long long*)a);
 }
 
 
 void init_mycfs_rq(struct mycfs_rq *mycfs_rq){
-    //memset(selist,0,sizeof(selist));
-    red_blk_tree* rb_tree;
-    rb_tree = red_blk_create_tree(U64Comp, U64Destroy, U64Print);
+    //rb_tree = red_blk_create_tree(U64Comp, U64Destroy, U64Print);
+    rb_tree = red_blk_create_tree(vruntimeCompare, U64Destroy, U64Print);
+
 	#if 1 // Yiyang: test
 	printk(KERN_EMERG "red_blk_create_tree() is called\n");
 	#endif
@@ -440,4 +451,3 @@ const struct sched_class mycfs_sched_class = {
 	.task_move_group	= task_move_group_mycfs,
 #endif
 };
-
