@@ -4,6 +4,12 @@
 
 #include <trace/events/sched.h>
 
+/* Yiyang: */
+#include "myrbtree.h"
+#include <linux/slab.h>
+
+//typedef unsigned long long u64;
+
 /*
  * mycfs-task scheduling class.
  *
@@ -371,8 +377,30 @@ static void task_waking_mycfs(struct task_struct *p)
 }
 #endif
 
+/* U64Destroy, U64Comp, U64Print are function pointers needed by
+ * creating red black tree */
+void U64Destroy(void* a) {
+	kfree((unsigned long long*) a);
+}
+
+int U64Comp(const void* a, const void* b) {
+	if( *(unsigned long long*)a > *(unsigned long long*)b) return(1);
+    if( *(unsigned long long*)a < *(unsigned long long*)b) return(-1);
+	return(0);
+}
+
+void U64Print(const void* a) {
+	printk("%llu",*(unsigned long long*)a);
+}
+
+
 void init_mycfs_rq(struct mycfs_rq *mycfs_rq){
-    memset(selist,0,sizeof(selist));
+    //memset(selist,0,sizeof(selist));
+    red_blk_tree* rb_tree;
+    rb_tree = red_blk_create_tree(U64Comp, U64Destroy, U64Print);
+	#if 1 // Yiyang: test
+	printk(KERN_EMERG "red_blk_create_tree() is called\n");
+	#endif
 }
 
 /*
