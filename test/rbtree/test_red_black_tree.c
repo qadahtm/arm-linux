@@ -33,9 +33,29 @@ int main() {
   int* newInt;
   red_blk_node* newNode;
   red_blk_tree* tree;
+  int i =0;
 
   tree = red_blk_create_tree(IntComp,IntDest,IntPrint);
-  while(option!=9) {
+
+  for (i=0; i < 1000;){
+ 	newInt = (int*)malloc(sizeof(int));
+	*newInt = i ;
+        red_blk_insert(newInt, tree);
+	i = i + 10;
+  }
+
+  for (i=0; i < 10; i++){
+  	if ( tree->nil != ( newNode = red_blk_find_leftmost(tree) ) ) { 
+                  printf("Left most key = %d\n", *(int*)newNode->key);
+         } else {
+               printf("tree is empty\n");
+         }
+	red_blk_delete_node(tree,newNode);
+  }
+
+}
+/*
+while(option!=9) {
     printf("choose one of the following:\n");
     printf("(1) add to tree\n(2) delete from tree\n(3) query\n");
     printf("(4) find predecessor\n(5) find sucessor\n");
@@ -59,7 +79,7 @@ int main() {
 	{
 	  printf("type key of node to remove\n");
 	  scanf("%i",&newKey);
-	  if ( tree->nil != ( newNode = red_blk_search(&newKey, tree) ) ) /*assignment*/
+	  if ( tree->nil != ( newNode = red_blk_search(&newKey, tree) ) ) 
 	  	red_blk_delete_node(tree, newNode);
 	  else 
 	  	printf("key not found in tree, no action taken\n");
@@ -70,7 +90,7 @@ int main() {
 	{
 	  printf("type key of node to query for\n");
 	  scanf("%i",&newKey);
-	  if ( tree->nil != ( newNode = red_blk_search(&newKey, tree) ) ) /*assignment*/
+	  if ( tree->nil != ( newNode = red_blk_search(&newKey, tree) ) )
 	    printf("data found in tree at location %p\n",(void*)newNode);
 	  else 
 	    printf("data not in tree\n");
@@ -80,7 +100,7 @@ int main() {
 	{
 	  printf("type key of node to find predecessor of\n");
 	  scanf("%i",&newKey);
-	  if ( tree->nil != ( newNode = red_blk_search(&newKey, tree) ) ) { /*assignment*/
+	  if ( tree->nil != ( newNode = red_blk_search(&newKey, tree) ) ) {
 	    newNode = red_blk_find_predecessor(tree, newNode);
 	    if(tree->nil == newNode) {
 	      printf("there is no predecessor for that node (it is a minimum)\n");
@@ -96,7 +116,7 @@ int main() {
 	{
 	  printf("type key of node to find successor of\n");
 	  scanf("%i",&newKey);
-	  if ( tree->nil != ( newNode = red_blk_search(&newKey, tree) ) ) { /*assignment*/
+	  if ( tree->nil != ( newNode = red_blk_search(&newKey, tree) ) ) {
 	    newNode = red_blk_find_successor(tree, newNode);
 	    if(tree->nil == newNode) {
 	      printf("there is no successor for that node (it is a maximum)\n");
@@ -110,7 +130,7 @@ int main() {
 	break;
       case 6:
 	{
-	  if ( tree->nil != ( newNode = red_blk_find_leftmost(tree) ) ) { /*assignment*/
+	  if ( tree->nil != ( newNode = red_blk_find_leftmost(tree) ) ) { 
 	  	printf("Left most key = %d\n", *(int*)newNode->key);
 	  } else {
 	    printf("tree is empty\n");
@@ -119,7 +139,7 @@ int main() {
 	break;
       case 7:
 	{
-	  if ( tree->nil != ( newNode = red_blk_find_rightmost(tree) ) ) { /*assignment*/
+	  if ( tree->nil != ( newNode = red_blk_find_rightmost(tree) ) ) { 
 	  	printf("Right most key = %d\n", *(int*)newNode->key);
 	  } else {
 	    printf("tree is empty\n");
@@ -142,4 +162,4 @@ int main() {
       }
   }
   return 0;
-}
+}*/

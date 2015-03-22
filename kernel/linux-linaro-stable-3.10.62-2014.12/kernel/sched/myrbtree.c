@@ -7,6 +7,7 @@
 
 //#include <stdio.h>
 //#include <stdlib.h>
+#include <linux/sched.h>
 #include "myrbtree.h"
 
 #include <linux/printk.h>
@@ -152,14 +153,18 @@ red_blk_tree* red_blk_create_tree (int (*compare)(const void*, const void*),
 }
 
 red_blk_node* red_blk_search (void* key, red_blk_tree* tree) {
+    return red_blk_search_key(key,tree->compare,tree);
+}
+
+red_blk_node* red_blk_search_key (void* key, int (*keycompare)(const void*, const void*), red_blk_tree* tree) {
 	red_blk_node* current_node = tree->root->left_child;
 	red_blk_node* nil = tree->nil;
 
 	if (current_node == nil)
 		return nil;
-	while ((current_node != nil) && (0 != tree->compare(key, current_node->key))) {
+	while ((current_node != nil) && (0 != keycompare(key, current_node->key))) {
 		/* search left child */
-		if (tree->compare(key, current_node->key) < 0)
+		if (keycompare(key, current_node->key) < 0)
 			current_node = current_node->left_child;
 		/* search right child */
 		else
@@ -488,32 +493,34 @@ red_blk_node* red_blk_find_rightmost (red_blk_tree* tree) {
 }
 
 int red_blk_is_empty(red_blk_tree* tree) {
-	if (tree->root == tree->nil) return 1;
+	if (tree->root->left_child == tree->nil) return 1;
+//        if (tree->root->key == NULL) return 1;
 	else return 0;
 }
 
 void red_blk_inorder_tree_print(red_blk_tree* tree, red_blk_node* root) {
-	red_blk_node* nil = tree->nil;
-	if (root != nil) {
-		red_blk_inorder_tree_print(tree, root->left_child);
-		printk("key = ");
-		tree->print_key(root->key);
-		printk(" \tleft->key = ");
-		if (root->left_child == nil)
-			printk("N");
-		else
-			tree->print_key(root->left_child->key);
-		printk(" \tright->key = ");
-		if (root->right_child == nil)
-			printk("N");
-		else
-			tree->print_key(root->right_child->key);
-		printk(" \tparent->key = ");
-		if (root->parent == tree->root)
-			printk("N");
-		else
-			tree->print_key(root->parent->key);
-		printk(" \tred = %i\n", root->red);
-		red_blk_inorder_tree_print(tree, root->right_child);
-	}
+    printk(KERN_EMERG "printing rb_tree starting with %08lx\n",(unsigned long) root);
+    red_blk_node* nil = tree->nil;
+    if (root != nil) {
+            red_blk_inorder_tree_print(tree, root->left_child);
+            printk(KERN_EMERG "key = ");
+            tree->print_key(root->key);
+            printk(KERN_EMERG " \tleft->key = ");
+            if (root->left_child == nil)
+                    printk(KERN_EMERG "N");
+            else
+                    tree->print_key(root->left_child->key);
+            printk(KERN_EMERG " \tright->key = ");
+            if (root->right_child == nil)
+                    printk(KERN_EMERG "N");
+            else
+                    tree->print_key(root->right_child->key);
+            printk(KERN_EMERG " \tparent->key = ");
+            if (root->parent == tree->root)
+                    printk(KERN_EMERG "N");
+            else
+                    tree->print_key(root->parent->key);
+            printk(KERN_EMERG " \tred = %i\n", root->red);
+            red_blk_inorder_tree_print(tree, root->right_child);
+    }
 }

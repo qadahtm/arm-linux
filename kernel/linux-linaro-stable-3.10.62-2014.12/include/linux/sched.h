@@ -54,6 +54,7 @@ struct sched_param {
 #include <linux/gfp.h>
 
 #include <asm/processor.h>
+#include <linux/myrbtree.h>
 
 struct exec_domain;
 struct futex_pi_state;
@@ -998,6 +999,7 @@ struct sched_statistics {
 struct sched_entity {
 	struct load_weight	load;		/* for load-balancing */
 	struct rb_node		run_node;
+        red_blk_node*           myrb_node;
 	struct list_head	group_node;
 	unsigned int		on_rq;
 

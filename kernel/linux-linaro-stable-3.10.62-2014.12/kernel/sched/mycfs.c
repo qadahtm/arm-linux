@@ -1,9 +1,10 @@
 #include "sched.h"
 #include <linux/syscalls.h>
 #include <linux/printk.h>
-
+/* tqadah */
 #include <trace/events/sched.h>
-
+#include <linux/sched.h>
+#include <linux/myrbtree.h>
 /* Yiyang: */
 #include "myrbtree.h"
 #include <linux/slab.h>
@@ -136,8 +137,9 @@ static void check_preempt_curr_mycfs(struct rq *rq, struct task_struct *p, int f
 
 static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 {
+    struct task_struct *p; 
 #if 0 // Yiyang: comment out	
-	struct task_struct *p; 
+	
         int i=0;
 
 //        if (rq->curr == p) {
@@ -206,19 +208,27 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
             BUG();
         }
 #endif        
-	return NULL;
+//        printk(KERN_EMERG "picking next task for mycfs, check rb_tree is empty\n");
+        if (red_blk_is_empty(rb_tree)) return NULL;
+     
+//        printk(KERN_EMERG "rb_tree is NOT empty\n");
+//        red_blk_inorder_tree_print(rb_tree,rb_tree->root->left_child);
+//        printk(KERN_EMERG "return NULL anyways\n");
+        p = task_of(((struct sched_entity *)(red_blk_find_leftmost(rb_tree)->key)));
+        
+        return p;
+//        return NULL;
 }
 
 static void
 enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
-    update_stats(rq,p);
-//    printk(KERN_EMERG "enqueue task at tail = %d %s\n",tail,p->comm);
+    
+    printk(KERN_EMERG "enqueue task %s\n",p->comm);
     //selist[tail] = &p->se;
     //tail++;
-	
-	//red_blk_insert((struct sched_entity*)(&(p->se)));
-	red_blk_insert(&(p->se), rb_tree);
+    update_stats(rq,p);
+    p->se.myrb_node = red_blk_insert(&(p->se), rb_tree);
     inc_nr_running(rq);
 }
 
@@ -254,11 +264,12 @@ dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 //    }
 #endif
 	red_blk_node* to_dequeue = NULL;
-
+    printk(KERN_EMERG "dequeue task %s\n",p->comm);
     update_stats(rq, p);
 
-	to_dequeue = red_blk_search(&(p->se), rb_tree);
-	#if 1 // Yiyang: test
+	//to_dequeue = red_blk_search(&(p->se), rb_tree);
+        to_dequeue = p->se.myrb_node;
+	#if 0 // Yiyang: test
 	if (to_dequeue == NULL) {
 		printk(KERN_EMERG "[ERROR] This shouldn't happen!\n");
 		BUG();
@@ -268,6 +279,7 @@ dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 	}
 	#endif
 	red_blk_delete_node(rb_tree, to_dequeue);
+        p->se.myrb_node = NULL;
     dec_nr_running(rq);
 }
 
@@ -432,7 +444,7 @@ void init_mycfs_rq(struct mycfs_rq *mycfs_rq){
     rb_tree = red_blk_create_tree(vruntimeCompare, U64Destroy, U64Print);
 
 	#if 1 // Yiyang: test
-	printk(KERN_EMERG "red_blk_create_tree() is called\n");
+	printk(KERN_EMERG "============ red_blk_create_tree() is called\n");
 	#endif
 }
 
