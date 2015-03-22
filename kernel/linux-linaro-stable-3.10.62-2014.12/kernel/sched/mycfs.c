@@ -22,10 +22,10 @@ SYSCALL_DEFINE2(sched_setlimit,pid_t, pid, int, limit){
 }
 //#define CONFIG_SMP
 
-#define SELIST_SIZE 1000
-static struct sched_entity * selist[SELIST_SIZE];
-static int head=-1;
-static int tail=0;
+//#define SELIST_SIZE 1000
+//static struct sched_entity * selist[SELIST_SIZE];
+//static int head=-1;
+//static int tail=0;
 
 static red_blk_tree* rb_tree = NULL; //red-black tree for mycfs
 
@@ -35,10 +35,10 @@ static inline struct task_struct *task_of(struct sched_entity *se)
 	return container_of(se, struct task_struct, se);
 }
 
-static inline struct rq *rq_of(struct cfs_rq *cfs_rq)
-{
-	return container_of(cfs_rq, struct rq, cfs);
-}
+//static inline struct rq *rq_of(struct cfs_rq *cfs_rq)
+//{
+//	return container_of(cfs_rq, struct rq, cfs);
+//}
 
 static inline u64 max_vruntime(u64 max_vruntime, u64 vruntime)
 {
@@ -136,6 +136,7 @@ static void check_preempt_curr_mycfs(struct rq *rq, struct task_struct *p, int f
 
 static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 {
+#if 0 // Yiyang: comment out	
 	struct task_struct *p; 
         int i=0;
 
@@ -204,7 +205,8 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 //            printk(KERN_EMERG "tail at(%d) is invalid\n");
             BUG();
         }
-        
+#endif        
+	return NULL;
 }
 
 static void
@@ -212,8 +214,11 @@ enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
     update_stats(rq,p);
 //    printk(KERN_EMERG "enqueue task at tail = %d %s\n",tail,p->comm);
-    selist[tail] = &p->se;
-    tail++;
+    //selist[tail] = &p->se;
+    //tail++;
+	
+	//red_blk_insert((struct sched_entity*)(&(p->se)));
+	red_blk_insert(&(p->se), rb_tree);
     inc_nr_running(rq);
 }
 
@@ -224,6 +229,7 @@ enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 static void
 dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
+#if 0 // Yiyang: comment out
     int i =0;
     update_stats(rq,p);
 //    printk(KERN_EMERG "dequeue task %s\n",p->comm);
@@ -246,6 +252,22 @@ dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 //    else{
 //        printk(KERN_EMERG "task %s does not exist in running-queue\n",p->comm);
 //    }
+#endif
+	red_blk_node* to_dequeue = NULL;
+
+    update_stats(rq, p);
+
+	to_dequeue = red_blk_search(&(p->se), rb_tree);
+	#if 1 // Yiyang: test
+	if (to_dequeue == NULL) {
+		printk(KERN_EMERG "[ERROR] This shouldn't happen!\n");
+		BUG();
+	}
+	if (to_dequeue == rb_tree->nil) {
+		printk(KERN_EMERG "[WARNING] The data is not in the tree!\n");
+	}
+	#endif
+	red_blk_delete_node(rb_tree, to_dequeue);
     dec_nr_running(rq);
 }
 

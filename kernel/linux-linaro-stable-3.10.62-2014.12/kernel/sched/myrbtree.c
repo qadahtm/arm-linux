@@ -370,6 +370,9 @@ void red_blk_delete_node (red_blk_tree* tree, red_blk_node* node) {
 	red_blk_node* nil = tree->nil;
 	red_blk_node* suc = NULL;
 
+	if (node == nil)
+		return;
+
 	/* node has 2 non-leaf child */
 	if (node->left_child != nil && node->right_child != nil) {
 		suc = red_blk_find_predecessor(tree, node);
