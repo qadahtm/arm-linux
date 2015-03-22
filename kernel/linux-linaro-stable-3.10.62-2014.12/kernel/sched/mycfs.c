@@ -30,6 +30,59 @@ SYSCALL_DEFINE2(sched_setlimit,pid_t, pid, int, limit){
 
 static red_blk_tree* rb_tree = NULL; //red-black tree for mycfs
 
+#if BITS_PER_LONG == 32
+# define WMULT_CONST	(~0UL)
+#else
+# define WMULT_CONST	(1UL << 32)
+#endif
+
+#define WMULT_SHIFT	32
+
+/*
+ * Shift right and round:
+ */
+#define SRR(x, y) (((x) + (1UL << ((y) - 1))) >> (y))
+
+/*
+ * delta *= weight / lw
+ */
+static unsigned long
+calc_delta_mycfs(unsigned long delta_exec, unsigned long weight,
+		struct load_weight *lw)
+{
+	u64 tmp;
+	/*
+	 * weight can be less than 2^SCHED_LOAD_RESOLUTION for task group sched
+	 * entities since MIN_SHARES = 2. Treat weight as 1 if less than
+	 * 2^SCHED_LOAD_RESOLUTION.
+	 */
+	if (likely(weight > (1UL << SCHED_LOAD_RESOLUTION)))
+		tmp = (u64)delta_exec * scale_load_down(weight);
+	else
+		tmp = (u64)delta_exec;
+
+	if (!lw->inv_weight) {
+		unsigned long w = scale_load_down(lw->weight);
+
+		if (BITS_PER_LONG > 32 && unlikely(w >= WMULT_CONST))
+			lw->inv_weight = 1;
+		else if (unlikely(!w))
+			lw->inv_weight = WMULT_CONST;
+		else
+			lw->inv_weight = WMULT_CONST / w;
+	}
+
+	/*
+	 * Check whether we'd overflow the 64-bit multiplication:
+	 */
+	if (unlikely(tmp > WMULT_CONST))
+		tmp = SRR(SRR(tmp, WMULT_SHIFT/2) * lw->inv_weight,
+			WMULT_SHIFT/2);
+	else
+		tmp = SRR(tmp * lw->inv_weight, WMULT_SHIFT);
+
+	return (unsigned long)min(tmp, (u64)(unsigned long)LONG_MAX);
+}
 
 static inline struct task_struct *task_of(struct sched_entity *se)
 {
@@ -72,9 +125,10 @@ static void update_stats(struct rq *rq, struct task_struct *p)
     struct mycfs_rq * mycfs = &(rq->mycfs);
     struct sched_entity *curr_se = &(p->se); 
 //    struct sched_entity *curr_se = &(mycfs->curr); 
-//    struct task_struct *curr = task_of(curr_se);
+    struct task_struct *curr = p;//task_of(curr_se);
     u64 now = rq->clock_task;
     unsigned long delta_exec;
+    unsigned long delta_exec_weighted;
     //unsigned long delta_exec_weighted;
     u64 vruntime = mycfs->min_vruntime;
 
@@ -82,16 +136,18 @@ static void update_stats(struct rq *rq, struct task_struct *p)
 
     if (!delta_exec)
         return;
-//    printk(KERN_EMERG "update_stats for curr = %s, now = %llu ,curr_se->exec_start = %llu, delta = %lu\n",
-//            curr->comm, now, curr_se->exec_start, delta_exec);
-    
+//    printk(KERN_EMERG "update_stats for curr = %s, now = %llu ,curr_se->exec_start = %llu, delta = %lu, vruntime = %llu\n",
+//            curr->comm, now, curr_se->exec_start, delta_exec,curr_se->vruntime);
+//    curr_se->statistics.exec_max = max((u64) delta_exec, curr_se->statistics.exec_max);
     schedstat_set(curr_se->statistics.exec_max,
             max((u64) delta_exec, curr_se->statistics.exec_max));
 
-    schedstat_add(mycfs, exec_clock, delta_exec);
+    //schedstat_add(mycfs, exec_clock, delta_exec);
+    mycfs->exec_clock += delta_exec;
     //delta_exec_weighted = calc_delta_fair(delta_exec, curr);
     curr_se->sum_exec_runtime += delta_exec;
-    curr_se->vruntime += delta_exec;
+    delta_exec_weighted = calc_delta_mycfs(delta_exec, NICE_0_LOAD, &curr_se->load);
+//    curr_se->vruntime += delta_exec_weighted;
 
 
     if (mycfs->curr)
@@ -110,9 +166,10 @@ static void update_stats(struct rq *rq, struct task_struct *p)
 //            cpuacct_charge(curtask, delta_exec);
 //            account_group_exec_runtime(curtask, delta_exec);
 //    }
-    
-//    printk(KERN_EMERG "update_stats for curr = %s, rq->curr = %s, mycfs->exec_clock = %llu, rq->clock_task = %llu , curr_se->sum_exec_time = %llu\n",
-//            curr->comm, rq->curr->comm, mycfs->exec_clock, rq->clock_task, curr_se->sum_exec_runtime);
+//    printk(KERN_EMERG "update_stats for curr = %s, curr_se->sum_exec_time = %llu, vruntime = %llu\n",
+//        curr->comm, curr_se->sum_exec_runtime, curr_se->vruntime);
+//    printk(KERN_EMERG "update_stats for curr = %s, rq->curr = %s, mycfs->exec_clock = %llu, rq->clock_task = %llu\n",
+//            curr->comm, rq->curr->comm, mycfs->exec_clock, rq->clock_task);
 }
 
 static void resched_task_mycfs(struct task_struct * p){
@@ -132,6 +189,7 @@ static void check_preempt_curr_mycfs(struct rq *rq, struct task_struct *p, int f
     
     
     update_stats(rq,curr);
+    update_stats(rq,p);
     resched_task_mycfs(curr);
 }
 
@@ -224,7 +282,7 @@ static void
 enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
     
-    printk(KERN_EMERG "enqueue task %s\n",p->comm);
+//    printk(KERN_EMERG "enqueue task %s\n",p->comm);
     //selist[tail] = &p->se;
     //tail++;
     update_stats(rq,p);
@@ -264,7 +322,7 @@ dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 //    }
 #endif
 	red_blk_node* to_dequeue = NULL;
-    printk(KERN_EMERG "dequeue task %s\n",p->comm);
+//    printk(KERN_EMERG "dequeue task %s\n",p->comm);
     update_stats(rq, p);
 
 	//to_dequeue = red_blk_search(&(p->se), rb_tree);
@@ -290,13 +348,49 @@ static void put_prev_task_mycfs(struct rq *rq, struct task_struct *prev)
 
 static void task_tick_mycfs(struct rq *rq, struct task_struct *curr, int queued)
 {
+    red_blk_node* lm_rbn = red_blk_find_leftmost (rb_tree);
+    struct sched_entity * lm_se = (struct sched_entity *) lm_rbn->key;
+    struct task_struct * lm_task = task_of(lm_se);
     
     update_stats(rq,curr);
     
-    // preempt tasks on task ticks
-    if (rq->curr == curr)
+    if (lm_se == &(curr->se)){
+        red_blk_delete_node(rb_tree,lm_rbn);
+        red_blk_insert (lm_se, rb_tree);
+    }
+//    else{
+//        
+//        printk(KERN_EMERG "[BUG] task_tick: we are not running leftmost curr(%s , vrt = %llu) leftmost(%s, vrt= %llu), need to reschedule\n", curr->comm, curr->se.vruntime,lm_task->comm,lm_se->vruntime);
+        //BUG();
+//        resched_task_mycfs(curr);
+//    }
+    
+    // see if the leftmost has been updates
+    lm_rbn = red_blk_find_leftmost (rb_tree);
+    lm_se = (struct sched_entity *) lm_rbn->key;
+    
+    if (lm_se != &(curr->se)){
+        // another task became leftmost, we need to reschedule
+//        printk(KERN_EMERG "[INFO] task_tick:another task became leftmost, we need to reschedule\n");
         resched_task_mycfs(curr);
-    else resched_task_mycfs(rq->curr);
+    }
+    
+//    if (rq->curr == curr){
+//        printk(KERN_EMERG "[INFO] task_tick: before update - curr=rq->curr, task(%s), vruntime(%llu)\n",curr->comm,curr->se.vruntime);
+//        update_stats(rq,curr);
+////        printk(KERN_EMERG "[INFO] task_tick: after - curr=rq->curr, task(%s), vruntime(%llu)\n",curr->comm,curr->se.vruntime);
+//    }
+//    else{
+//        printk(KERN_EMERG "[WARNING] task_tick: curr!!!=rq->curr\n");
+//        update_stats(rq,curr);
+//    }
+
+    
+    
+    // preempt tasks on task ticks
+//    if (rq->curr == curr)
+//        resched_task_mycfs(curr);
+//    else resched_task_mycfs(rq->curr);
 }
 
 static void set_curr_task_mycfs(struct rq *rq)
@@ -336,8 +430,11 @@ static unsigned int get_rr_interval_mycfs(struct rq *rq, struct task_struct *tas
  */
 static void yield_task_mycfs(struct rq *rq)
 {
-    //dequeue_task_mycfs(rq);
-    //enqueue_task_mycfs(rq);    
+    struct task_struct *p = (rq->curr);
+    printk(KERN_EMERG "yielding task %s \n",p->comm);
+    update_stats(rq, p);
+    dequeue_task_mycfs(rq,p,0);
+    enqueue_task_mycfs(rq,p,0);    
 }
 
 static bool yield_to_task_mycfs(struct rq *rq, struct task_struct *p, bool preempt)

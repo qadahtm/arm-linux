@@ -193,7 +193,6 @@ calc_delta_mine(unsigned long delta_exec, unsigned long weight,
 		struct load_weight *lw)
 {
 	u64 tmp;
-
 	/*
 	 * weight can be less than 2^SCHED_LOAD_RESOLUTION for task group sched
 	 * entities since MIN_SHARES = 2. Treat weight as 1 if less than
