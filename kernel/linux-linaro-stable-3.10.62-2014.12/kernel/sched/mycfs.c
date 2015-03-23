@@ -284,16 +284,14 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
     struct sched_entity * se;
     red_blk_node * rb_node;
 //        printk(KERN_EMERG "picking next task for mycfs, check rb_tree is empty\n");
-        if (red_blk_is_empty(rb_tree)) return NULL;
+        if (red_blk_is_empty(rb_tree)) {
+//            printk(KERN_EMERG "rb_tree is empty\n");
+            return NULL;
+        }
      
 //        printk(KERN_EMERG "rb_tree is NOT empty\n");
 //        red_blk_inorder_tree_print(rb_tree,rb_tree->root->left_child);
 //        printk(KERN_EMERG "return NULL anyways\n");
-
-	//if (penalty > 0) {
-	//	penalty--;
-	//	return NULL;
-	//}
 
 	rb_node = red_blk_find_leftmost(rb_tree);
 	do {
@@ -304,8 +302,12 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
                 if (p->penalty > 0) {
 			p->penalty--;
 			rb_node = red_blk_find_successor(rb_tree, rb_node);
-			if (rb_node == rb_tree->nil)
-				return NULL;
+			if (rb_node == rb_tree->nil){
+                            // no task can run
+//                            printk(KERN_EMERG "no task can run rb_tree not empty, nr_running = (%d)\n", rq->mycfs.nr_running);
+                            return NULL;
+                        }
+				
 		} else
 			break;
 	} while(1);
@@ -333,6 +335,7 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
          // set start exec timestamp
         se->exec_start = rq->clock_task;
         rq->mycfs.curr = se;
+        se->prev_sum_exec_runtime = se->sum_exec_runtime;
         
         return p;
 //        return NULL;
@@ -370,13 +373,12 @@ dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 //    printk(KERN_EMERG "dequeue task %s\n",p->comm);
     update_stats(rq, p);
     if (rq->curr != p){
-    
           
-//    schedstat_set(se->statistics.wait_max, max(se->statistics.wait_max,
-//                     rq->clock - se->statistics.wait_start));
-//     schedstat_set(se->statistics.wait_count, se->statistics.wait_count + 1);
-//     schedstat_set(se->statistics.wait_sum, se->statistics.wait_sum +
-//                     rq->clock - se->statistics.wait_start);
+    schedstat_set(se->statistics.wait_max, max(se->statistics.wait_max,
+                     rq->clock - se->statistics.wait_start));
+     schedstat_set(se->statistics.wait_count, se->statistics.wait_count + 1);
+     schedstat_set(se->statistics.wait_sum, se->statistics.wait_sum +
+                     rq->clock - se->statistics.wait_start);
 #ifdef CONFIG_SCHEDSTATS
 //     if (entity_is_task(se)) {
              trace_sched_stat_wait(p,
@@ -409,10 +411,13 @@ dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 static void put_prev_task_mycfs(struct rq *rq, struct task_struct *prev)
 {
     struct sched_entity * prev_se = &(prev->se);
-    update_stats(rq,prev);
-    prev_se->myrb_node = red_blk_insert (prev_se, rb_tree);
+    if (prev_se->on_rq){
+        update_stats(rq,prev);
+        schedstat_set(se->statistics.wait_start, rq->clock);  
+        prev_se->myrb_node = red_blk_insert (prev_se, rb_tree);
+    }
     
-    schedstat_set(se->statistics.wait_start, rq->clock);    
+    (&rq->mycfs)->curr = NULL;      
 }
 
 
@@ -433,6 +438,8 @@ static void task_tick_mycfs(struct rq *rq, struct task_struct *curr, int queued)
     unsigned long delta_exec;
     u64 now = rq->clock_task;
     struct sched_entity *curr_se = &(curr->se); 
+    
+    
     delta_exec = (unsigned long) (now - curr_se->exec_start);
     //printk(KERN_EMERG "[Last runtime on CPU] = %lu\n", delta_exec);
     if (delta_exec > 10000000 && curr->cpu_limit > 0) {
@@ -451,10 +458,10 @@ static void task_tick_mycfs(struct rq *rq, struct task_struct *curr, int queued)
     //update_stats_penalty(rq, curr, penalty);
     
     
-    if (lm_se == &(curr->se)){
-        red_blk_delete_node(rb_tree,lm_rbn);
-        lm_se->myrb_node = red_blk_insert (lm_se, rb_tree);
-    }
+//    if (lm_se == &(curr->se)){
+//        red_blk_delete_node(rb_tree,lm_rbn);
+//        lm_se->myrb_node = red_blk_insert (lm_se, rb_tree);
+//    }
 //    else{
 //        
 //        printk(KERN_EMERG "[BUG] task_tick: we are not running leftmost curr(%s , vrt = %llu) leftmost(%s, vrt= %llu), need to reschedule\n", curr->comm, curr->se.vruntime,lm_task->comm,lm_se->vruntime);
@@ -466,7 +473,8 @@ static void task_tick_mycfs(struct rq *rq, struct task_struct *curr, int queued)
     lm_rbn = red_blk_find_leftmost (rb_tree);
     lm_se = (struct sched_entity *) lm_rbn->key;
     
-    if (lm_se != &(curr->se)){
+    
+    if (lm_se->vruntime < curr_se->vruntime){
         // another task became leftmost, we need to reschedule
 //        printk(KERN_EMERG "[INFO] task_tick:another task became leftmost, we need to reschedule\n");
         resched_task_mycfs(curr);
@@ -492,6 +500,29 @@ static void task_tick_mycfs(struct rq *rq, struct task_struct *curr, int queued)
 
 static void set_curr_task_mycfs(struct rq *rq)
 {  
+    struct sched_entity * se = &rq->curr->se;
+     
+        if(se->on_rq){
+            red_blk_delete_node(rb_tree,se->myrb_node);
+            se->myrb_node = NULL;
+            	schedstat_set(se->statistics.wait_max, max(se->statistics.wait_max,
+			rq->clock - se->statistics.wait_start));
+                schedstat_set(se->statistics.wait_count, se->statistics.wait_count + 1);
+                schedstat_set(se->statistics.wait_sum, se->statistics.wait_sum +
+                                rq->clock - se->statistics.wait_start);
+#ifdef CONFIG_SCHEDSTATS
+//                if (entity_is_task(se)) {
+                        trace_sched_stat_wait(task_of(se),
+                                rq->clock - se->statistics.wait_start);
+//                }
+#endif
+                schedstat_set(se->statistics.wait_start, 0);
+        }
+        
+         // set start exec timestamp
+        se->exec_start = rq->clock_task;
+        rq->mycfs.curr = se;
+        se->prev_sum_exec_runtime = se->sum_exec_runtime;
 }
 
 static void switched_to_mycfs(struct rq *rq, struct task_struct *p)

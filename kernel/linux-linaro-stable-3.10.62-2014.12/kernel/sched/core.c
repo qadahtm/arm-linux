@@ -3034,7 +3034,11 @@ need_resched:
 		idle_balance(cpu, rq);
 
 	put_prev_task(rq, prev);
-	next = pick_next_task(rq);
+        next = pick_next_task(rq);
+//        tqadah
+//        if (strncmp(next->comm, "cpu_task0", TASK_COMM_LEN) == 0) {
+//            printk(KERN_EMERG "here\n");
+//        }
 	clear_tsk_need_resched(prev);
 	rq->skip_clock_update = 0;
 
@@ -3059,7 +3063,7 @@ need_resched:
 
 	sched_preempt_enable_no_resched();
 	if (need_resched())
-		goto need_resched;
+		goto need_resched;        
 }
 
 static inline void sched_submit_work(struct task_struct *tsk)
