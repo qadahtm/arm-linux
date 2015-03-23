@@ -8,6 +8,7 @@
 /* Yiyang: */
 #include "myrbtree.h"
 #include <linux/slab.h>
+#include <linux/time.h>
 
 //typedef unsigned long long u64;
 
@@ -29,6 +30,14 @@ SYSCALL_DEFINE2(sched_setlimit,pid_t, pid, int, limit){
 //static int tail=0;
 
 static red_blk_tree* rb_tree = NULL; //red-black tree for mycfs
+static struct timeval tv_start = {};
+static struct timeval tv_end;
+static s64 t_start = 0;
+static s64 t_end = 0;
+//do_gettimeofday(&tv_start);
+//t_start = timeval_to_ns(&tv_start);
+
+static int temp_limit = 10;
 
 #if BITS_PER_LONG == 32
 # define WMULT_CONST	(~0UL)
@@ -414,10 +423,24 @@ static void put_prev_task_mycfs(struct rq *rq, struct task_struct *prev)
 
 static void task_tick_mycfs(struct rq *rq, struct task_struct *curr, int queued)
 {
+    #if 0 // Yiyang: test task tick interval
+    do_gettimeofday(&tv_end);
+    t_end = timeval_to_ns(&tv_end);
+    printk(KERN_EMERG "[Time elapsed] = %lld\n", t_end - t_start);
+    do_gettimeofday(&tv_start);
+    t_start = timeval_to_ns(&tv_start);
+    #endif
+
     red_blk_node* lm_rbn = red_blk_find_leftmost (rb_tree);
     struct sched_entity * lm_se = (struct sched_entity *) lm_rbn->key;
     struct task_struct * lm_task = task_of(lm_se);
     
+    unsigned long delta_exec;
+    u64 now = rq->clock_task;
+    struct sched_entity *curr_se = &(curr->se); 
+    delta_exec = (unsigned long) (now - curr_se->exec_start);
+    printk(KERN_EMERG "[Last runtime on CPU] = %lu\n", delta_exec);
+
     update_stats(rq,curr);
     
     if (lm_se == &(curr->se)){
