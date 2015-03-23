@@ -283,76 +283,6 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
     struct mycfs_rq *mycfs;
     struct sched_entity * se;
     red_blk_node * rb_node;
-#if 0 // Yiyang: comment out	
-	
-        int i=0;
-
-//        if (rq->curr == p) {
-//            printk(KERN_EMERG "picked task : %s at i = %d, pid= %d is already in rq of cpu(%d)\n"
-//                    ,p->comm, i, (int) p->pid,cpu_of(rq));            
-//            return NULL;
-//        }
-        
-        if (tail >= 0 && tail < SELIST_SIZE){
-        
-            if (head == -1){
-                // first time pick the first task in the list
-                
-                for (i=0; i< SELIST_SIZE; i++){
-                    // returning the first task in the list
-                    if (selist[i] != 0) {
-                        head = i;
-                        p = task_of(selist[i]);
-//                        printk(KERN_EMERG "picked task (first) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
-//                            ,p->comm, i, (int) p->pid, cpu_of(rq),head);
-                        return p;
-                    }            
-                }
-                
-            }
-            else{
-                // pick other tasks. 
-                for (i=(head+1); i< SELIST_SIZE; i++){
-                    // returning the first task in the list after head
-                    if (selist[i] != 0) {
-                        head = i;
-                        p = task_of(selist[i]);
-//                        printk(KERN_EMERG "picked task (head-start-other) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
-//                            ,p->comm, i, (int) p->pid, cpu_of(rq),head);
-                        return p;
-                    }            
-                }
-                
-                for (i=0; i< head; i++){
-                    // returning the first task in the list after head
-                    if (selist[i] != 0) {
-                        head = i;
-                        p = task_of(selist[i]);
-//                        printk(KERN_EMERG "picked task (head-start-other) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
-//                            ,p->comm, i, (int) p->pid, cpu_of(rq),head);
-                        return p;
-                    }            
-                }
-                
-                
-                // no other tasks, return same task if valid
-                if (selist[head] != 0){
-                    p = task_of(selist[head]);
-//                    printk(KERN_EMERG "picked task (no-other) : %s at i = %d, pid= %d, cpu = %d, head = %d \n"
-//                            ,p->comm, i, (int) p->pid, cpu_of(rq),head);
-                    return p;
-                }
-                
-                
-            }
-            return NULL;
-        
-        }
-        else{
-//            printk(KERN_EMERG "tail at(%d) is invalid\n");
-            BUG();
-        }
-#endif        
 //        printk(KERN_EMERG "picking next task for mycfs, check rb_tree is empty\n");
         if (red_blk_is_empty(rb_tree)) return NULL;
      
@@ -386,24 +316,23 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
         if(se->on_rq){
             red_blk_delete_node(rb_tree,rb_node);
             se->myrb_node = NULL;
-//            	schedstat_set(se->statistics.wait_max, max(se->statistics.wait_max,
-//			rq->clock - se->statistics.wait_start));
-//                schedstat_set(se->statistics.wait_count, se->statistics.wait_count + 1);
-//                schedstat_set(se->statistics.wait_sum, se->statistics.wait_sum +
-//                                rq->clock - se->statistics.wait_start);
-//#ifdef CONFIG_SCHEDSTATS
-////                if (entity_is_task(se)) {
-//                        trace_sched_stat_wait(task_of(se),
-//                                rq->clock - se->statistics.wait_start);
-////                }
-//#endif
-//                schedstat_set(se->statistics.wait_start, 0);
+            	schedstat_set(se->statistics.wait_max, max(se->statistics.wait_max,
+			rq->clock - se->statistics.wait_start));
+                schedstat_set(se->statistics.wait_count, se->statistics.wait_count + 1);
+                schedstat_set(se->statistics.wait_sum, se->statistics.wait_sum +
+                                rq->clock - se->statistics.wait_start);
+#ifdef CONFIG_SCHEDSTATS
+//                if (entity_is_task(se)) {
+                        trace_sched_stat_wait(task_of(se),
+                                rq->clock - se->statistics.wait_start);
+//                }
+#endif
+                schedstat_set(se->statistics.wait_start, 0);
         }
         
          // set start exec timestamp
         se->exec_start = rq->clock_task;
         rq->mycfs.curr = se;
-        se->on_rq = 1;
         
         return p;
 //        return NULL;
@@ -428,6 +357,7 @@ enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
     update_stats(rq,p);
     
     p->se.myrb_node = red_blk_insert(&(p->se), rb_tree);
+    curr_se->on_rq = 1;
     inc_nr_running(rq);
 }
 
@@ -438,30 +368,6 @@ enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 static void
 dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 {
-#if 0 // Yiyang: comment out
-    int i =0;
-    update_stats(rq,p);
-//    printk(KERN_EMERG "dequeue task %s\n",p->comm);
-
-    for (i=0; i < tail; i++){
-        if (selist[i] == &p->se) break;
-    }
-    
-    if (i < tail){
-        //found
-//        printk(KERN_EMERG "task %s found in running-queue at i=%d\n",p->comm,i);
-        for (; i < tail; i++){
-            selist[i] = selist[i+1];
-        }
-        selist[i] = 0;
-        tail--;
-//        printk(KERN_EMERG "tail was (%d), now is (%d)\n",(tail+1),tail);
-        
-    }
-//    else{
-//        printk(KERN_EMERG "task %s does not exist in running-queue\n",p->comm);
-//    }
-#endif
     struct sched_entity * se = &(p->se);
     red_blk_node* to_dequeue = NULL;
 //    printk(KERN_EMERG "dequeue task %s\n",p->comm);
@@ -508,16 +414,8 @@ static void put_prev_task_mycfs(struct rq *rq, struct task_struct *prev)
     struct sched_entity * prev_se = &(prev->se);
     update_stats(rq,prev);
     red_blk_insert (prev_se, rb_tree);
-    prev_se->on_rq = 0;
     
-#ifdef CONFIG_SCHEDSTATS
-//                if (entity_is_task(se)) {
-                        trace_sched_stat_wait(task_of(se),
-                                rq->clock - se->statistics.wait_start);
-//                }
-#endif
-    schedstat_set(se->statistics.wait_start, 0);
-    
+    schedstat_set(se->statistics.wait_start, rq->clock);    
 }
 
 
@@ -540,19 +438,21 @@ static void task_tick_mycfs(struct rq *rq, struct task_struct *curr, int queued)
     struct sched_entity *curr_se = &(curr->se); 
     delta_exec = (unsigned long) (now - curr_se->exec_start);
     //printk(KERN_EMERG "[Last runtime on CPU] = %lu\n", delta_exec);
-    
     if (delta_exec > 10000000 && curr->cpu_limit > 0) {
-    	//penalty = 100 / temp_limit;
-	
-	if (curr->cpu_limit > 100)
-		curr->cpu_limit = 100;
+        //penalty = 100 / temp_limit;
 
-    	curr->penalty = (100 / curr->cpu_limit) - 1;
+        if (curr->cpu_limit > 100)
+                curr->cpu_limit = 100;
+
+        curr->penalty = (100 / curr->cpu_limit) - 1;
+        update_stats_penalty(rq, curr, curr->penalty);
     }
-
-    //update_stats(rq,curr);
+    else{
+        update_stats(rq,curr);
+    }
+    
     //update_stats_penalty(rq, curr, penalty);
-    update_stats_penalty(rq, curr, curr->penalty);
+    
     
     if (lm_se == &(curr->se)){
         red_blk_delete_node(rb_tree,lm_rbn);
