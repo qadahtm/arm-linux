@@ -19,9 +19,9 @@
  *  handled in sched/fair.c)
  */
 SYSCALL_DEFINE2(sched_setlimit, pid_t, pid, unsigned int, limit){
-    printk(KERN_EMERG "for pid(%d) , limit is %d\n",(int) pid, limit);
-
     struct task_struct* ts = find_task_by_vpid(pid);
+
+    //printk(KERN_EMERG "for pid(%d) , limit is %d\n",(int) pid, limit);
 
     if (ts == NULL) {
     	printk(KERN_EMERG "[WARNING] No task_struct found with pid = %d\n", (int)pid);
@@ -368,8 +368,10 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 	rb_node = red_blk_find_leftmost(rb_tree);
 	do {
 		se = ((struct sched_entity *)(rb_node->key));
+                
 		p = task_of(se);
-		if (p->penalty > 0) {
+//		printk(KERN_EMERG "picking next : task is %s \n",p->comm);
+                if (p->penalty > 0) {
 			p->penalty--;
 			rb_node = red_blk_find_successor(rb_tree, rb_node);
 			if (rb_node == rb_tree->nil)
@@ -380,9 +382,6 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 
         //update_stats(rq,p);
         
-        // set start exec timestamp
-        se->exec_start = rq->clock_task;
-        rq->mycfs.curr = se;
               
         if(se->on_rq){
             red_blk_delete_node(rb_tree,rb_node);
@@ -392,16 +391,19 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 //                schedstat_set(se->statistics.wait_count, se->statistics.wait_count + 1);
 //                schedstat_set(se->statistics.wait_sum, se->statistics.wait_sum +
 //                                rq->clock - se->statistics.wait_start);
-#ifdef CONFIG_SCHEDSTATS
-//                if (entity_is_task(se)) {
-                        trace_sched_stat_wait(task_of(se),
-                                rq->clock - se->statistics.wait_start);
-//                }
-#endif
-                schedstat_set(se->statistics.wait_start, 0);
+//#ifdef CONFIG_SCHEDSTATS
+////                if (entity_is_task(se)) {
+//                        trace_sched_stat_wait(task_of(se),
+//                                rq->clock - se->statistics.wait_start);
+////                }
+//#endif
+//                schedstat_set(se->statistics.wait_start, 0);
         }
         
-        
+         // set start exec timestamp
+        se->exec_start = rq->clock_task;
+        rq->mycfs.curr = se;
+        se->on_rq = 1;
         
         return p;
 //        return NULL;
@@ -503,7 +505,19 @@ dequeue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 
 static void put_prev_task_mycfs(struct rq *rq, struct task_struct *prev)
 {
-   // update_stats(rq,prev);
+    struct sched_entity * prev_se = &(prev->se);
+    update_stats(rq,prev);
+    red_blk_insert (prev_se, rb_tree);
+    prev_se->on_rq = 0;
+    
+#ifdef CONFIG_SCHEDSTATS
+//                if (entity_is_task(se)) {
+                        trace_sched_stat_wait(task_of(se),
+                                rq->clock - se->statistics.wait_start);
+//                }
+#endif
+    schedstat_set(se->statistics.wait_start, 0);
+    
 }
 
 
