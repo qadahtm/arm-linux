@@ -38,6 +38,7 @@ static s64 t_end = 0;
 //t_start = timeval_to_ns(&tv_start);
 
 static int temp_limit = 10;
+static unsigned int penalty = 0;
 
 #if BITS_PER_LONG == 32
 # define WMULT_CONST	(~0UL)
@@ -127,6 +128,63 @@ static inline int entity_before(struct sched_entity *a,
 	return (s64)(a->vruntime - b->vruntime) < 0;
 }
 
+static void update_stats_penalty(struct rq *rq, struct task_struct *p, unsigned int penalty)
+{
+    // update task statistics
+    struct mycfs_rq * mycfs = &(rq->mycfs);
+    struct sched_entity *curr_se = &(p->se); 
+//    struct sched_entity *curr_se = &(mycfs->curr); 
+    struct task_struct *curr = p;//task_of(curr_se);
+    u64 now = rq->clock_task;
+    unsigned long delta_exec;
+    unsigned long delta_exec_weighted;
+    //unsigned long delta_exec_weighted;
+    u64 vruntime = mycfs->min_vruntime;
+
+    delta_exec = (unsigned long) (now - curr_se->exec_start);
+
+    if (!delta_exec)
+        return;
+//    printk(KERN_EMERG "update_stats for curr = %s, now = %llu ,curr_se->exec_start = %llu, delta = %lu, vruntime = %llu\n",
+//            curr->comm, now, curr_se->exec_start, delta_exec,curr_se->vruntime);
+//    curr_se->statistics.exec_max = max((u64) delta_exec, curr_se->statistics.exec_max);
+    schedstat_set(curr_se->statistics.exec_max,
+            max((u64) delta_exec, curr_se->statistics.exec_max));
+
+    schedstat_add(mycfs, exec_clock, delta_exec);
+//    mycfs->exec_clock += delta_exec;
+    //delta_exec_weighted = calc_delta_fair(delta_exec, curr);
+    curr_se->sum_exec_runtime += delta_exec;
+    delta_exec_weighted = calc_delta_mycfs(delta_exec, NICE_0_LOAD, &curr_se->load);
+//    printk(KERN_EMERG "update_stats: curr->load (%lu) , delta_exec(%llu), delte_exec_weighted(%llu)\n",
+//            curr_se->load.weight,delta_exec,delta_exec_weighted );
+    curr_se->vruntime += delta_exec_weighted*penalty;
+   
+
+//    if (mycfs->curr){
+//        printk(KERN_EMERG "update_stats: mycfs->curr is not zero\n");
+//        vruntime = mycfs->curr->vruntime;
+//    }
+        
+    vruntime = curr_se->vruntime;
+    /* ensure we never gain time by being placed backwards. */
+    mycfs->min_vruntime = max_vruntime(mycfs->min_vruntime, vruntime);
+
+    curr_se->exec_start = now;
+    
+//    if (entity_is_task(curr)) {
+//            struct task_struct *curtask = task_of(curr_se);
+    
+//            trace_sched_stat_runtime(p, delta_exec, curr_se->vruntime);
+            trace_sched_stat_runtime(curr, delta_exec, curr_se->vruntime);
+            cpuacct_charge(curr, delta_exec);
+//            account_group_exec_runtime(curr, delta_exec);
+//    }
+//    printk(KERN_EMERG "update_stats for curr = %s, curr_se->sum_exec_time = %llu, vruntime = %llu\n",
+//        curr->comm, curr_se->sum_exec_runtime, curr_se->vruntime);
+//    printk(KERN_EMERG "update_stats for curr = %s, rq->curr = %s, mycfs->exec_clock = %llu, rq->clock_task = %llu\n",
+//            curr->comm, rq->curr->comm, mycfs->exec_clock, rq->clock_task);
+}
 
 static void update_stats(struct rq *rq, struct task_struct *p)
 {
@@ -289,9 +347,16 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 //        printk(KERN_EMERG "rb_tree is NOT empty\n");
 //        red_blk_inorder_tree_print(rb_tree,rb_tree->root->left_child);
 //        printk(KERN_EMERG "return NULL anyways\n");
-        rb_node = red_blk_find_leftmost(rb_tree);
-        se = ((struct sched_entity *)(rb_node->key));
-        p = task_of(se);
+
+	if (penalty > 0) {
+		penalty--;
+		return NULL;
+	}
+
+	rb_node = red_blk_find_leftmost(rb_tree);
+	se = ((struct sched_entity *)(rb_node->key));
+	p = task_of(se);
+
         //update_stats(rq,p);
         
         // set start exec timestamp
@@ -439,9 +504,14 @@ static void task_tick_mycfs(struct rq *rq, struct task_struct *curr, int queued)
     u64 now = rq->clock_task;
     struct sched_entity *curr_se = &(curr->se); 
     delta_exec = (unsigned long) (now - curr_se->exec_start);
-    printk(KERN_EMERG "[Last runtime on CPU] = %lu\n", delta_exec);
+    //printk(KERN_EMERG "[Last runtime on CPU] = %lu\n", delta_exec);
+    
+    if (delta_exec > 10000000) {
+    	penalty = 100 / temp_limit;
+    }
 
-    update_stats(rq,curr);
+    //update_stats(rq,curr);
+    update_stats_penalty(rq, curr, penalty);
     
     if (lm_se == &(curr->se)){
         red_blk_delete_node(rb_tree,lm_rbn);
