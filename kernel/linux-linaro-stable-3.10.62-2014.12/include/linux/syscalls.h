@@ -275,7 +275,7 @@ asmlinkage long sys_clock_nanosleep(clockid_t which_clock, int flags,
 
 asmlinkage long sys_nice(int increment);
 /*tqadah ece695 prog3 */
-asmlinkage long sys_sched_setlimit(pid_t pid,int limit);
+asmlinkage long sys_sched_setlimit(pid_t pid, unsigned int limit);
 asmlinkage long sys_sched_setscheduler(pid_t pid, int policy,
 					struct sched_param __user *param);
 asmlinkage long sys_sched_setparam(pid_t pid,

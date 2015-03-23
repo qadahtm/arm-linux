@@ -18,8 +18,19 @@
  * (NOTE: these are not related to SCHED_IDLE tasks which are
  *  handled in sched/fair.c)
  */
-SYSCALL_DEFINE2(sched_setlimit,pid_t, pid, int, limit){
+SYSCALL_DEFINE2(sched_setlimit, pid_t, pid, unsigned int, limit){
     printk(KERN_EMERG "for pid(%d) , limit is %d\n",(int) pid, limit);
+
+    struct task_struct* ts = find_task_by_vpid(pid);
+
+    if (ts == NULL) {
+    	printk(KERN_EMERG "[WARNING] No task_struct found with pid = %d\n", (int)pid);
+	return -1;
+    }
+
+    ts->cpu_limit = limit;
+    ts->penalty = 0;
+
     return 0;
 }
 //#define CONFIG_SMP
@@ -30,15 +41,16 @@ SYSCALL_DEFINE2(sched_setlimit,pid_t, pid, int, limit){
 //static int tail=0;
 
 static red_blk_tree* rb_tree = NULL; //red-black tree for mycfs
-static struct timeval tv_start = {};
-static struct timeval tv_end;
-static s64 t_start = 0;
-static s64 t_end = 0;
+
+//static struct timeval tv_start = {};
+//static struct timeval tv_end;
+//static s64 t_start = 0;
+//static s64 t_end = 0;
 //do_gettimeofday(&tv_start);
 //t_start = timeval_to_ns(&tv_start);
 
-static int temp_limit = 10;
-static unsigned int penalty = 0;
+//static int temp_limit = 10;
+//static unsigned int penalty = 0;
 
 #if BITS_PER_LONG == 32
 # define WMULT_CONST	(~0UL)
@@ -348,14 +360,23 @@ static struct task_struct *pick_next_task_mycfs(struct rq *rq)
 //        red_blk_inorder_tree_print(rb_tree,rb_tree->root->left_child);
 //        printk(KERN_EMERG "return NULL anyways\n");
 
-	if (penalty > 0) {
-		penalty--;
-		return NULL;
-	}
+	//if (penalty > 0) {
+	//	penalty--;
+	//	return NULL;
+	//}
 
 	rb_node = red_blk_find_leftmost(rb_tree);
-	se = ((struct sched_entity *)(rb_node->key));
-	p = task_of(se);
+	do {
+		se = ((struct sched_entity *)(rb_node->key));
+		p = task_of(se);
+		if (p->penalty > 0) {
+			p->penalty--;
+			rb_node = red_blk_find_successor(rb_tree, rb_node);
+			if (rb_node == rb_tree->nil)
+				return NULL;
+		} else
+			break;
+	} while(1);
 
         //update_stats(rq,p);
         
@@ -506,12 +527,18 @@ static void task_tick_mycfs(struct rq *rq, struct task_struct *curr, int queued)
     delta_exec = (unsigned long) (now - curr_se->exec_start);
     //printk(KERN_EMERG "[Last runtime on CPU] = %lu\n", delta_exec);
     
-    if (delta_exec > 10000000) {
-    	penalty = 100 / temp_limit;
+    if (delta_exec > 10000000 && curr->cpu_limit > 0) {
+    	//penalty = 100 / temp_limit;
+	
+	if (curr->cpu_limit > 100)
+		curr->cpu_limit = 100;
+
+    	curr->penalty = (100 / curr->cpu_limit) - 1;
     }
 
     //update_stats(rq,curr);
-    update_stats_penalty(rq, curr, penalty);
+    //update_stats_penalty(rq, curr, penalty);
+    update_stats_penalty(rq, curr, curr->penalty);
     
     if (lm_se == &(curr->se)){
         red_blk_delete_node(rb_tree,lm_rbn);
