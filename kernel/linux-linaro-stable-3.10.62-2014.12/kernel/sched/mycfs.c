@@ -170,7 +170,7 @@ static void update_stats_penalty(struct rq *rq, struct task_struct *p, unsigned 
     delta_exec_weighted = calc_delta_mycfs(delta_exec, NICE_0_LOAD, &curr_se->load);
 //    printk(KERN_EMERG "update_stats: curr->load (%lu) , delta_exec(%llu), delte_exec_weighted(%llu)\n",
 //            curr_se->load.weight,delta_exec,delta_exec_weighted );
-    curr_se->vruntime += delta_exec_weighted*penalty;
+    curr_se->vruntime += delta_exec_weighted*(penalty+1);
    
 
 //    if (mycfs->curr){
@@ -346,9 +346,6 @@ enqueue_task_mycfs(struct rq *rq, struct task_struct *p, int flags)
 //    printk(KERN_EMERG "enqueue task = %s, now = %llu ,curr_se->exec_start = %llu, mycfs->exec_clock = %llu, vruntime = %llu\n",
 //            p->comm, rq->clock_task, curr_se->exec_start, rq->mycfs.exec_clock,curr_se->vruntime);
     
-    //selist[tail] = &p->se;
-    //tail++;
-    
     if (rq->curr != p){
          schedstat_set(se->statistics.wait_start, rq->clock);
     }
@@ -413,7 +410,7 @@ static void put_prev_task_mycfs(struct rq *rq, struct task_struct *prev)
 {
     struct sched_entity * prev_se = &(prev->se);
     update_stats(rq,prev);
-    red_blk_insert (prev_se, rb_tree);
+    prev_se->myrb_node = red_blk_insert (prev_se, rb_tree);
     
     schedstat_set(se->statistics.wait_start, rq->clock);    
 }
@@ -445,18 +442,18 @@ static void task_tick_mycfs(struct rq *rq, struct task_struct *curr, int queued)
                 curr->cpu_limit = 100;
 
         curr->penalty = (100 / curr->cpu_limit) - 1;
-        update_stats_penalty(rq, curr, curr->penalty);
+        
     }
-    else{
-        update_stats(rq,curr);
-    }
-    
+//    else{
+//        update_stats(rq,curr);
+//    }
+    update_stats_penalty(rq, curr, curr->penalty);
     //update_stats_penalty(rq, curr, penalty);
     
     
     if (lm_se == &(curr->se)){
         red_blk_delete_node(rb_tree,lm_rbn);
-        red_blk_insert (lm_se, rb_tree);
+        lm_se->myrb_node = red_blk_insert (lm_se, rb_tree);
     }
 //    else{
 //        
@@ -558,7 +555,26 @@ static void task_fork_mycfs(struct task_struct *p)
 
 
 static void switched_from_mycfs(struct rq *rq, struct task_struct *p)
-{}
+{
+    struct sched_entity * se = &(p->se);
+    
+   if(se->on_rq){
+            red_blk_delete_node(rb_tree,se->myrb_node);
+            se->myrb_node = NULL;
+            	schedstat_set(se->statistics.wait_max, max(se->statistics.wait_max,
+			rq->clock - se->statistics.wait_start));
+                schedstat_set(se->statistics.wait_count, se->statistics.wait_count + 1);
+                schedstat_set(se->statistics.wait_sum, se->statistics.wait_sum +
+                                rq->clock - se->statistics.wait_start);
+#ifdef CONFIG_SCHEDSTATS
+//                if (entity_is_task(se)) {
+                        trace_sched_stat_wait(task_of(se),
+                                rq->clock - se->statistics.wait_start);
+//                }
+#endif
+                schedstat_set(se->statistics.wait_start, 0);
+    }
+}
 
 #ifdef CONFIG_FAIR_GROUP_SCHED
 static void task_move_group_fair(struct task_struct *p, int on_rq)
