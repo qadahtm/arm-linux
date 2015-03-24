@@ -18,8 +18,25 @@
  * (NOTE: these are not related to SCHED_IDLE tasks which are
  *  handled in sched/fair.c)
  */
+
+static int temp_limit = 0;
+static unsigned int penalty = 0;
+
 SYSCALL_DEFINE2(sched_setlimit,pid_t, pid, int, limit){
     printk(KERN_EMERG "for pid(%d) , limit is %d\n",(int) pid, limit);
+
+    //struct task_struct* ts = find_task_by_vpid(pid);
+
+    //if (ts == NULL) {
+    //	printk(KERN_EMERG "[WARNING] No task_struct found with pid = %d\n", (int)pid);
+    //    return -1;
+    //}
+
+    //ts->cpu_limit = limit;
+    //ts->penalty = 0;
+
+    temp_limit = limit;
+
     return 0;
 }
 //#define CONFIG_SMP
@@ -37,8 +54,6 @@ static s64 t_end = 0;
 //do_gettimeofday(&tv_start);
 //t_start = timeval_to_ns(&tv_start);
 
-static int temp_limit = 10;
-static unsigned int penalty = 0;
 
 #if BITS_PER_LONG == 32
 # define WMULT_CONST	(~0UL)
